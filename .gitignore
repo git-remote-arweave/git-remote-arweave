@@ -1,0 +1,14 @@
+# compiled binaries
+/git-remote-arweave
+/arweave-git
+/dist/
+
+# test artifacts
+*.test
+*.out
+
+# arweave wallet keyfile — never commit private keys
+*.json
+
+# OS
+.DS_Store
