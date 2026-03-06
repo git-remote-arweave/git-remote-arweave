@@ -6,21 +6,17 @@ import (
 )
 
 func TestNewGenesis(t *testing.T) {
-	m := NewGenesis("repo-uuid", "my-repo")
+	m := NewGenesis()
 	if !m.IsGenesis() {
 		t.Error("IsGenesis() = false, want true")
 	}
 	if m.Version != Version {
 		t.Errorf("Version = %d, want %d", m.Version, Version)
 	}
-	if m.RepoID != "repo-uuid" {
-		t.Errorf("RepoID = %q, want repo-uuid", m.RepoID)
-	}
 }
 
 func TestMarshalParse(t *testing.T) {
 	original := New(
-		"repo-uuid",
 		map[string]string{"refs/heads/main": "abc123"},
 		[]PackEntry{{TX: "tx1", Base: "base1", Tip: "tip1", Size: 1024}},
 		"parent-tx-id",
@@ -37,9 +33,6 @@ func TestMarshalParse(t *testing.T) {
 		t.Fatalf("Parse() error: %v", err)
 	}
 
-	if parsed.RepoID != original.RepoID {
-		t.Errorf("RepoID = %q, want %q", parsed.RepoID, original.RepoID)
-	}
 	if parsed.Parent != "parent-tx-id" {
 		t.Errorf("Parent = %q, want parent-tx-id", parsed.Parent)
 	}
@@ -52,7 +45,7 @@ func TestMarshalParse(t *testing.T) {
 }
 
 func TestGenesisOmitsParent(t *testing.T) {
-	m := NewGenesis("repo-uuid", "my-repo")
+	m := NewGenesis()
 	data, err := m.Marshal()
 	if err != nil {
 		t.Fatalf("Marshal() error: %v", err)
@@ -68,7 +61,7 @@ func TestGenesisOmitsParent(t *testing.T) {
 }
 
 func TestExtensionsPreserved(t *testing.T) {
-	raw := `{"version":1,"repo_id":"r","refs":{},"packs":[],"parent":"p","extensions":{"ao_process":"\"abc\""}}`
+	raw := `{"version":1,"refs":{},"packs":[],"parent":"p","extensions":{"ao_process":"\"abc\""}}`
 	m, err := Parse([]byte(raw))
 	if err != nil {
 		t.Fatalf("Parse() error: %v", err)
@@ -90,33 +83,25 @@ func TestExtensionsPreserved(t *testing.T) {
 }
 
 func TestParseRejectsUnknownVersion(t *testing.T) {
-	raw := `{"version":99,"repo_id":"r","refs":{},"packs":[],"extensions":{}}`
+	raw := `{"version":99,"refs":{},"packs":[],"extensions":{}}`
 	_, err := Parse([]byte(raw))
 	if err == nil {
 		t.Error("Parse() expected error for unknown version")
 	}
 }
 
-func TestParseRejectsMissingRepoID(t *testing.T) {
-	raw := `{"version":1,"refs":{},"packs":[],"extensions":{}}`
-	_, err := Parse([]byte(raw))
-	if err == nil {
-		t.Error("Parse() expected error for missing repo_id")
-	}
-}
-
 func TestRefsTags(t *testing.T) {
-	tags := RefsTags("repo-id", "my-repo", "owner-addr", "")
+	tags := RefsTags("my-repo", "")
 	assertTag(t, tags, TagGenesis, "true")
 	assertNoTag(t, tags, TagParentTx)
 
-	tags = RefsTags("repo-id", "my-repo", "owner-addr", "parent-tx")
+	tags = RefsTags("my-repo", "parent-tx")
 	assertTag(t, tags, TagParentTx, "parent-tx")
 	assertNoTag(t, tags, TagGenesis)
 }
 
 func TestPackTags(t *testing.T) {
-	tags := PackTags("repo-id", "my-repo", "owner", "base-sha", "tip-sha")
+	tags := PackTags("my-repo", "base-sha", "tip-sha")
 	assertTag(t, tags, TagType, TypePack)
 	assertTag(t, tags, TagBase, "base-sha")
 	assertTag(t, tags, TagTip, "tip-sha")

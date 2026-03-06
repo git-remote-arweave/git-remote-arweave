@@ -77,7 +77,6 @@ func TestPendingRoundtrip(t *testing.T) {
 		PackTxID:     "pack-tx-1",
 		ManifestTxID: "manifest-tx-1",
 		ParentTxID:   "parent-tx-0",
-		RepoID:       "repo-uuid",
 		UploadedAt:   time.Unix(1000, 0),
 	}
 	packData := []byte("fake packfile data")
@@ -127,5 +126,33 @@ func TestClearPending(t *testing.T) {
 	// idempotent
 	if err := s.ClearPending(); err != nil {
 		t.Errorf("ClearPending again: %v", err)
+	}
+}
+
+func TestLastManifestTxID(t *testing.T) {
+	s := newTestState(t)
+
+	// empty initially
+	id, err := s.LoadLastManifestTxID()
+	if err != nil || id != "" {
+		t.Errorf("LoadLastManifestTxID on empty: got (%q, %v), want (\"\", nil)", id, err)
+	}
+
+	if err := s.SaveLastManifestTxID("manifest-tx-1"); err != nil {
+		t.Fatalf("SaveLastManifestTxID: %v", err)
+	}
+
+	id, err = s.LoadLastManifestTxID()
+	if err != nil || id != "manifest-tx-1" {
+		t.Errorf("LoadLastManifestTxID: got (%q, %v), want (manifest-tx-1, nil)", id, err)
+	}
+
+	// overwrite
+	if err := s.SaveLastManifestTxID("manifest-tx-2"); err != nil {
+		t.Fatalf("SaveLastManifestTxID overwrite: %v", err)
+	}
+	id, _ = s.LoadLastManifestTxID()
+	if id != "manifest-tx-2" {
+		t.Errorf("after overwrite: got %q, want manifest-tx-2", id)
 	}
 }

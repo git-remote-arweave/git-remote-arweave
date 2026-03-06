@@ -1,21 +1,23 @@
 package arweave
 
 import (
+	"strings"
 	"testing"
 
 	"git-remote-arweave/internal/manifest"
 )
 
 func TestBuildLatestManifestQuery(t *testing.T) {
-	q := buildLatestManifestQuery("repo-uuid-123")
+	q := buildLatestManifestQuery("owner-addr", "my-repo")
 	for _, want := range []string{
+		"owner-addr",
 		manifest.AppName,
 		manifest.ProtocolVersion,
 		manifest.TypeRefs,
-		"repo-uuid-123",
+		"my-repo",
 		"HEIGHT_DESC",
 	} {
-		if !contains(q, want) {
+		if !strings.Contains(q, want) {
 			t.Errorf("query missing %q", want)
 		}
 	}
@@ -27,10 +29,11 @@ func TestBuildRepoLookupQuery(t *testing.T) {
 		"owner-addr",
 		manifest.AppName,
 		manifest.TypeRefs,
+		"my-repo",
 		manifest.TagGenesis,
 		"true",
 	} {
-		if !contains(q, want) {
+		if !strings.Contains(q, want) {
 			t.Errorf("query missing %q", want)
 		}
 	}
@@ -130,15 +133,3 @@ func TestParseFirstTxID_empty(t *testing.T) {
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsRune(s, sub))
-}
-
-func containsRune(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}

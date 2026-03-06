@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	dirName         = "arweave"
+	dirName          = "arweave"
 	appliedPacksFile = "applied-packs"
 	pendingJSONFile  = "pending.json"
 	pendingPackFile  = "pending.pack"
+	lastManifestFile = "last-manifest"
 )
 
 // State manages all local state stored under <gitDir>/arweave/.
@@ -106,7 +107,6 @@ type PendingState struct {
 	PackTxID     string    `json:"pack_tx"`
 	ManifestTxID string    `json:"manifest_tx"`
 	ParentTxID   string    `json:"parent_tx"` // parent used when building this manifest
-	RepoID       string    `json:"repo_id"`
 	UploadedAt   time.Time `json:"uploaded_at"`
 }
 
@@ -174,4 +174,24 @@ func (s *State) ClearPending() error {
 func (s *State) HasPending() bool {
 	_, err := os.Stat(filepath.Join(s.dir, pendingJSONFile))
 	return err == nil
+}
+
+// --- last confirmed manifest ---
+
+// SaveLastManifestTxID records the tx-id of the last confirmed manifest.
+// Used as Parent-Tx for the next push and for conflict detection.
+func (s *State) SaveLastManifestTxID(txID string) error {
+	return os.WriteFile(filepath.Join(s.dir, lastManifestFile), []byte(txID), 0o600)
+}
+
+// LoadLastManifestTxID returns the last confirmed manifest tx-id, or "" if none.
+func (s *State) LoadLastManifestTxID() (string, error) {
+	data, err := os.ReadFile(filepath.Join(s.dir, lastManifestFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("localstate: read last-manifest: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
 }

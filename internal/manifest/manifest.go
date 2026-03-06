@@ -19,9 +19,7 @@ const (
 	TagAppName         = "App-Name"
 	TagProtocolVersion = "Protocol-Version"
 	TagType            = "Type"
-	TagRepoID          = "Repo-ID"
 	TagRepoName        = "Repo-Name"
-	TagOwner           = "Owner"
 	TagParentTx        = "Parent-Tx"
 	TagGenesis         = "Genesis"
 	TagBase            = "Base"
@@ -47,7 +45,6 @@ type PackEntry struct {
 // Extensions preserves unknown keys for forward compatibility.
 type Manifest struct {
 	Version    int                        `json:"version"`
-	RepoID     string                     `json:"repo_id"`
 	Refs       map[string]string          `json:"refs"`
 	Packs      []PackEntry                `json:"packs"`
 	Parent     string                     `json:"parent,omitempty"`
@@ -60,10 +57,9 @@ func (m *Manifest) IsGenesis() bool {
 }
 
 // NewGenesis creates the first manifest for a new repository.
-func NewGenesis(repoID, repoName string) *Manifest {
+func NewGenesis() *Manifest {
 	return &Manifest{
 		Version:    Version,
-		RepoID:     repoID,
 		Refs:       map[string]string{},
 		Packs:      []PackEntry{},
 		Extensions: map[string]json.RawMessage{},
@@ -71,13 +67,12 @@ func NewGenesis(repoID, repoName string) *Manifest {
 }
 
 // New creates a non-genesis manifest building on a previous one.
-func New(repoID string, refs map[string]string, packs []PackEntry, parentTx string, extensions map[string]json.RawMessage) *Manifest {
+func New(refs map[string]string, packs []PackEntry, parentTx string, extensions map[string]json.RawMessage) *Manifest {
 	if extensions == nil {
 		extensions = map[string]json.RawMessage{}
 	}
 	return &Manifest{
 		Version:    Version,
-		RepoID:     repoID,
 		Refs:       refs,
 		Packs:      packs,
 		Parent:     parentTx,
@@ -99,21 +94,16 @@ func Parse(data []byte) (*Manifest, error) {
 	if m.Version != Version {
 		return nil, fmt.Errorf("manifest: unsupported version %d", m.Version)
 	}
-	if m.RepoID == "" {
-		return nil, fmt.Errorf("manifest: missing repo_id")
-	}
 	return &m, nil
 }
 
 // RefsTags returns the Arweave transaction tags for a ref manifest transaction.
-func RefsTags(repoID, repoName, owner, parentTx string) []Tag {
+func RefsTags(repoName, parentTx string) []Tag {
 	tags := []Tag{
 		{TagAppName, AppName},
 		{TagProtocolVersion, ProtocolVersion},
 		{TagType, TypeRefs},
-		{TagRepoID, repoID},
 		{TagRepoName, repoName},
-		{TagOwner, owner},
 	}
 	if parentTx == "" {
 		tags = append(tags, Tag{TagGenesis, "true"})
@@ -124,14 +114,12 @@ func RefsTags(repoID, repoName, owner, parentTx string) []Tag {
 }
 
 // PackTags returns the Arweave transaction tags for a pack transaction.
-func PackTags(repoID, repoName, owner, base, tip string) []Tag {
+func PackTags(repoName, base, tip string) []Tag {
 	return []Tag{
 		{TagAppName, AppName},
 		{TagProtocolVersion, ProtocolVersion},
 		{TagType, TypePack},
-		{TagRepoID, repoID},
 		{TagRepoName, repoName},
-		{TagOwner, owner},
 		{TagBase, base},
 		{TagTip, tip},
 	}

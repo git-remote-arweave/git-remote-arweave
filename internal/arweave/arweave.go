@@ -114,10 +114,10 @@ func (c *Client) TxStatus(ctx context.Context, txID string) (Status, error) {
 	return StatusPending, nil
 }
 
-// QueryLatestManifest finds the most recent confirmed ref manifest for repoID.
+// QueryLatestManifest finds the most recent confirmed ref manifest for (owner, repoName).
 // Returns nil, nil if no manifest exists (new repository).
-func (c *Client) QueryLatestManifest(ctx context.Context, repoID string) (*ManifestInfo, error) {
-	query := buildLatestManifestQuery(repoID)
+func (c *Client) QueryLatestManifest(ctx context.Context, owner, repoName string) (*ManifestInfo, error) {
+	query := buildLatestManifestQuery(owner, repoName)
 	body, err := c.goarClient.GraphQL(query)
 	if err != nil {
 		return nil, fmt.Errorf("arweave: graphql failed: %w", err)
@@ -125,22 +125,23 @@ func (c *Client) QueryLatestManifest(ctx context.Context, repoID string) (*Manif
 	return parseManifestQueryResult(body)
 }
 
-// QueryRepoByOwnerAndName finds the genesis manifest tx-id for a (owner, repo-name) pair.
-// Returns "", nil if the repository does not exist yet.
-func (c *Client) QueryRepoByOwnerAndName(ctx context.Context, owner, repoName string) (string, error) {
+// RepoExists reports whether a repository identified by (owner, repoName) exists on Arweave.
+func (c *Client) RepoExists(ctx context.Context, owner, repoName string) (bool, error) {
 	query := buildRepoLookupQuery(owner, repoName)
 	body, err := c.goarClient.GraphQL(query)
 	if err != nil {
-		return "", fmt.Errorf("arweave: graphql failed: %w", err)
+		return false, fmt.Errorf("arweave: graphql failed: %w", err)
 	}
-	return parseFirstTxID(body)
+	id, err := parseFirstTxID(body)
+	return id != "", err
 }
 
 // --- GraphQL query builders ---
 
-func buildLatestManifestQuery(repoID string) string {
+func buildLatestManifestQuery(owner, repoName string) string {
 	return fmt.Sprintf(`{
   transactions(
+    owners: [%q]
     tags: [
       { name: %q, values: [%q] }
       { name: %q, values: [%q] }
@@ -153,10 +154,11 @@ func buildLatestManifestQuery(repoID string) string {
     edges { node { id tags { name value } } }
   }
 }`,
+		owner,
 		manifest.TagAppName, manifest.AppName,
 		manifest.TagProtocolVersion, manifest.ProtocolVersion,
 		manifest.TagType, manifest.TypeRefs,
-		manifest.TagRepoID, repoID,
+		manifest.TagRepoName, repoName,
 	)
 }
 
@@ -165,6 +167,7 @@ func buildRepoLookupQuery(owner, repoName string) string {
   transactions(
     owners: [%q]
     tags: [
+      { name: %q, values: [%q] }
       { name: %q, values: [%q] }
       { name: %q, values: [%q] }
       { name: %q, values: [%q] }
@@ -179,6 +182,7 @@ func buildRepoLookupQuery(owner, repoName string) string {
 		manifest.TagAppName, manifest.AppName,
 		manifest.TagProtocolVersion, manifest.ProtocolVersion,
 		manifest.TagType, manifest.TypeRefs,
+		manifest.TagRepoName, repoName,
 		manifest.TagGenesis, "true",
 	)
 }
