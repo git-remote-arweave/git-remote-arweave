@@ -41,18 +41,16 @@ func TestBuildRepoLookupQuery(t *testing.T) {
 
 func TestParseManifestQueryResult_found(t *testing.T) {
 	body := []byte(`{
-		"data": {
-			"transactions": {
-				"edges": [{
-					"node": {
-						"id": "tx-abc",
-						"tags": [
-							{"name": "Parent-Tx", "value": "parent-xyz"},
-							{"name": "App-Name", "value": "git-remote-arweave"}
-						]
-					}
-				}]
-			}
+		"transactions": {
+			"edges": [{
+				"node": {
+					"id": "tx-abc",
+					"tags": [
+						{"name": "Parent-Tx", "value": "parent-xyz"},
+						{"name": "App-Name", "value": "git-remote-arweave"}
+					]
+				}
+			}]
 		}
 	}`)
 
@@ -76,15 +74,13 @@ func TestParseManifestQueryResult_found(t *testing.T) {
 
 func TestParseManifestQueryResult_genesis(t *testing.T) {
 	body := []byte(`{
-		"data": {
-			"transactions": {
-				"edges": [{
-					"node": {
-						"id": "genesis-tx",
-						"tags": [{"name": "Genesis", "value": "true"}]
-					}
-				}]
-			}
+		"transactions": {
+			"edges": [{
+				"node": {
+					"id": "genesis-tx",
+					"tags": [{"name": "Genesis", "value": "true"}]
+				}
+			}]
 		}
 	}`)
 
@@ -101,7 +97,7 @@ func TestParseManifestQueryResult_genesis(t *testing.T) {
 }
 
 func TestParseManifestQueryResult_empty(t *testing.T) {
-	body := []byte(`{"data":{"transactions":{"edges":[]}}}`)
+	body := []byte(`{"transactions":{"edges":[]}}`)
 	info, err := parseManifestQueryResult(body)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -112,7 +108,7 @@ func TestParseManifestQueryResult_empty(t *testing.T) {
 }
 
 func TestParseFirstTxID(t *testing.T) {
-	body := []byte(`{"data":{"transactions":{"edges":[{"node":{"id":"found-id","tags":[]}}]}}}`)
+	body := []byte(`{"transactions":{"edges":[{"node":{"id":"found-id","tags":[]}}]}}`)
 	id, err := parseFirstTxID(body)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -123,7 +119,7 @@ func TestParseFirstTxID(t *testing.T) {
 }
 
 func TestParseFirstTxID_empty(t *testing.T) {
-	body := []byte(`{"data":{"transactions":{"edges":[]}}}`)
+	body := []byte(`{"transactions":{"edges":[]}}`)
 	id, err := parseFirstTxID(body)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -92,6 +92,9 @@ type handler struct {
 	owner    string
 	repoName string
 	out      io.Writer
+
+	// cached from list, reused by fetch
+	remoteState *ops.RemoteState
 }
 
 // loop reads and dispatches commands from stdin.
@@ -133,10 +136,12 @@ func (h *handler) cmdCapabilities() error {
 }
 
 func (h *handler) cmdList() error {
-	refs, err := ops.ListRefs(h.ctx, h.ar, h.owner, h.repoName)
+	rs, err := ops.LoadRemoteState(h.ctx, h.ar, h.owner, h.repoName)
 	if err != nil {
 		return err
 	}
+	h.remoteState = rs
+	refs := ops.ListRefs(rs)
 
 	for ref, sha := range refs {
 		if _, err := fmt.Fprintf(h.out, "%s %s\n", sha, ref); err != nil {
@@ -168,7 +173,16 @@ func (h *handler) cmdFetch(scanner *bufio.Scanner) error {
 		// individually because ops.Fetch downloads all new packs.
 	}
 
-	_, err := ops.Fetch(h.ctx, h.ar, h.repo, h.state, h.owner, h.repoName)
+	rs := h.remoteState
+	if rs == nil {
+		var err error
+		rs, err = ops.LoadRemoteState(h.ctx, h.ar, h.owner, h.repoName)
+		if err != nil {
+			return err
+		}
+	}
+	h.remoteState = nil // consumed
+	_, err := ops.Fetch(h.ctx, h.ar, h.repo, h.state, rs)
 	if err != nil {
 		return err
 	}

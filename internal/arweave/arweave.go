@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -93,7 +94,13 @@ func (c *Client) Upload(ctx context.Context, data []byte, tags []manifest.Tag) (
 
 // Fetch downloads raw transaction data by tx-id.
 func (c *Client) Fetch(ctx context.Context, txID string) ([]byte, error) {
+	// goar prints download progress to stdout via fmt.Printf, which
+	// corrupts the git remote helper protocol. Redirect stdout to
+	// stderr for the duration of the call.
+	orig := os.Stdout
+	os.Stdout = os.Stderr
 	data, err := c.goarClient.GetTransactionData(txID)
+	os.Stdout = orig
 	if err != nil {
 		return nil, fmt.Errorf("arweave: fetch %q: %w", txID, err)
 	}
@@ -190,19 +197,17 @@ func buildRepoLookupQuery(owner, repoName string) string {
 // --- GraphQL response parsing ---
 
 type gqlResponse struct {
-	Data struct {
-		Transactions struct {
-			Edges []struct {
-				Node struct {
-					ID   string `json:"id"`
-					Tags []struct {
-						Name  string `json:"name"`
-						Value string `json:"value"`
-					} `json:"tags"`
-				} `json:"node"`
-			} `json:"edges"`
-		} `json:"transactions"`
-	} `json:"data"`
+	Transactions struct {
+		Edges []struct {
+			Node struct {
+				ID   string `json:"id"`
+				Tags []struct {
+					Name  string `json:"name"`
+					Value string `json:"value"`
+				} `json:"tags"`
+			} `json:"node"`
+		} `json:"edges"`
+	} `json:"transactions"`
 }
 
 func parseManifestQueryResult(body []byte) (*ManifestInfo, error) {
@@ -210,10 +215,10 @@ func parseManifestQueryResult(body []byte) (*ManifestInfo, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("arweave: parse graphql response: %w", err)
 	}
-	if len(resp.Data.Transactions.Edges) == 0 {
+	if len(resp.Transactions.Edges) == 0 {
 		return nil, nil
 	}
-	node := resp.Data.Transactions.Edges[0].Node
+	node := resp.Transactions.Edges[0].Node
 	info := &ManifestInfo{TxID: node.ID}
 	for _, tag := range node.Tags {
 		switch tag.Name {
@@ -231,8 +236,8 @@ func parseFirstTxID(body []byte) (string, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return "", fmt.Errorf("arweave: parse graphql response: %w", err)
 	}
-	if len(resp.Data.Transactions.Edges) == 0 {
+	if len(resp.Transactions.Edges) == 0 {
 		return "", nil
 	}
-	return resp.Data.Transactions.Edges[0].Node.ID, nil
+	return resp.Transactions.Edges[0].Node.ID, nil
 }

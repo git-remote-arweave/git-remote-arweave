@@ -12,17 +12,13 @@ import (
 	"git-remote-arweave/internal/pack"
 )
 
-// ListRefs queries the remote for the current ref list.
+// ListRefs returns the ref list from a previously loaded remote state.
 // Returns an empty map if the repository does not exist yet.
-func ListRefs(ctx context.Context, ar *arweave.Client, owner, repoName string) (map[string]string, error) {
-	rs, err := loadRemoteState(ctx, ar, owner, repoName)
-	if err != nil {
-		return nil, err
-	}
+func ListRefs(rs *RemoteState) map[string]string {
 	if rs.m == nil {
-		return map[string]string{}, nil
+		return map[string]string{}
 	}
-	return rs.m.Refs, nil
+	return rs.m.Refs
 }
 
 // Fetch downloads and applies any new packs from the remote.
@@ -33,12 +29,8 @@ func Fetch(
 	ar *arweave.Client,
 	repo *git.Repository,
 	state *localstate.State,
-	owner, repoName string,
+	rs *RemoteState,
 ) (*FetchResult, error) {
-	rs, err := loadRemoteState(ctx, ar, owner, repoName)
-	if err != nil {
-		return nil, err
-	}
 	if rs.m == nil {
 		return &FetchResult{Refs: map[string]string{}}, nil
 	}

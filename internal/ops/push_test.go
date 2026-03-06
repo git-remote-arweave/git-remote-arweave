@@ -76,7 +76,7 @@ func TestComputePackRange(t *testing.T) {
 }
 
 func TestEffectiveState_NoRemote(t *testing.T) {
-	rs := &remoteState{} // new repo, no manifest
+	rs := &RemoteState{} // new repo, no manifest
 	res := &pendingResolution{outcome: noPending}
 
 	refs, packs := effectiveState(rs, res)
@@ -89,7 +89,7 @@ func TestEffectiveState_NoRemote(t *testing.T) {
 }
 
 func TestEffectiveState_WithPendingPack(t *testing.T) {
-	rs := &remoteState{
+	rs := &RemoteState{
 		manifestTxID: "manifest-1",
 		m: &manifest.Manifest{
 			Refs:  map[string]string{"refs/heads/main": "aaa"},
@@ -119,7 +119,7 @@ func TestEffectiveState_WithPendingPack(t *testing.T) {
 }
 
 func TestEffectiveParentTx(t *testing.T) {
-	rs := &remoteState{manifestTxID: "manifest-1"}
+	rs := &RemoteState{manifestTxID: "manifest-1"}
 	res := &pendingResolution{outcome: pendingInMempool}
 
 	got := effectiveParentTx(rs, res)
@@ -129,7 +129,7 @@ func TestEffectiveParentTx(t *testing.T) {
 }
 
 func TestCheckConflict_NewRepo(t *testing.T) {
-	rs := &remoteState{} // no manifest
+	rs := &RemoteState{} // no manifest
 	res := &pendingResolution{outcome: noPending}
 	state := newTestState(t)
 
@@ -139,7 +139,7 @@ func TestCheckConflict_NewRepo(t *testing.T) {
 }
 
 func TestCheckConflict_Matching(t *testing.T) {
-	rs := &remoteState{
+	rs := &RemoteState{
 		manifestTxID: "manifest-1",
 		m:            &manifest.Manifest{},
 	}
@@ -153,7 +153,7 @@ func TestCheckConflict_Matching(t *testing.T) {
 }
 
 func TestCheckConflict_Mismatch(t *testing.T) {
-	rs := &remoteState{
+	rs := &RemoteState{
 		manifestTxID: "manifest-2",
 		m:            &manifest.Manifest{},
 	}
@@ -167,7 +167,7 @@ func TestCheckConflict_Mismatch(t *testing.T) {
 }
 
 func TestCheckConflict_NoLocalRecord(t *testing.T) {
-	rs := &remoteState{
+	rs := &RemoteState{
 		manifestTxID: "manifest-1",
 		m:            &manifest.Manifest{},
 	}
@@ -181,7 +181,7 @@ func TestCheckConflict_NoLocalRecord(t *testing.T) {
 }
 
 func TestCheckConflict_PendingParentMismatch(t *testing.T) {
-	rs := &remoteState{
+	rs := &RemoteState{
 		manifestTxID: "manifest-2",
 		m:            &manifest.Manifest{},
 	}

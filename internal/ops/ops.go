@@ -19,21 +19,22 @@ type FetchResult struct {
 	Refs map[string]string // ref name → commit SHA
 }
 
-// remoteState is the parsed state of the remote repository.
-type remoteState struct {
+// RemoteState is the parsed state of the remote repository.
+// Load it once with LoadRemoteState and pass to ListRefs / Fetch / Push.
+type RemoteState struct {
 	manifestTxID string
 	m            *manifest.Manifest // nil if repository does not exist yet
 }
 
-// loadRemoteState queries and parses the latest manifest for (owner, repoName).
+// LoadRemoteState queries and parses the latest manifest for (owner, repoName).
 // rs.m is nil when the repository has no manifests yet (new repo).
-func loadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName string) (*remoteState, error) {
+func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName string) (*RemoteState, error) {
 	info, err := ar.QueryLatestManifest(ctx, owner, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("ops: query manifest: %w", err)
 	}
 	if info == nil {
-		return &remoteState{}, nil
+		return &RemoteState{}, nil
 	}
 
 	data, err := ar.Fetch(ctx, info.TxID)
@@ -46,5 +47,5 @@ func loadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName st
 		return nil, fmt.Errorf("ops: parse manifest %q: %w", info.TxID, err)
 	}
 
-	return &remoteState{manifestTxID: info.TxID, m: m}, nil
+	return &RemoteState{manifestTxID: info.TxID, m: m}, nil
 }

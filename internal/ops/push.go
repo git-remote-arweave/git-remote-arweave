@@ -42,7 +42,7 @@ func Push(
 	}
 
 	// 2. Load remote state.
-	rs, err := loadRemoteState(ctx, ar, owner, repoName)
+	rs, err := LoadRemoteState(ctx, ar, owner, repoName)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func Push(
 }
 
 // checkConflict verifies that the local parent expectation matches on-chain state.
-func checkConflict(rs *remoteState, res *pendingResolution, state *localstate.State) error {
+func checkConflict(rs *RemoteState, res *pendingResolution, state *localstate.State) error {
 	// New repo — no conflict possible.
 	if rs.m == nil {
 		return nil
@@ -164,7 +164,7 @@ func checkConflict(rs *remoteState, res *pendingResolution, state *localstate.St
 // effectiveState returns the refs and packs to use as a base for the new manifest.
 // When a push is still in mempool, we use the pending push's refs snapshot
 // (which already includes the on-chain refs + the pending push's updates).
-func effectiveState(rs *remoteState, res *pendingResolution) (map[string]string, []manifest.PackEntry) {
+func effectiveState(rs *RemoteState, res *pendingResolution) (map[string]string, []manifest.PackEntry) {
 	hasPending := res.outcome == pendingInMempool || res.outcome == pendingReUploaded
 
 	// Refs: use pending refs if available (they are a superset of on-chain refs).
@@ -197,7 +197,7 @@ func effectiveState(rs *remoteState, res *pendingResolution) (map[string]string,
 }
 
 // effectiveParentTx returns the parent tx to use for the new manifest.
-func effectiveParentTx(rs *remoteState, res *pendingResolution) string {
+func effectiveParentTx(rs *RemoteState, res *pendingResolution) string {
 	// If there's a pending push in mempool, the new manifest chains from it
 	// (we don't have its tx-id yet since it hasn't confirmed). In this case
 	// we chain from the on-chain manifest (same parent as the pending).
@@ -238,7 +238,7 @@ func computePackRange(updates, currentRefs map[string]string) (tips, bases []plu
 }
 
 // extensions returns the extensions map from the remote state, or nil.
-func extensions(rs *remoteState) map[string]json.RawMessage {
+func extensions(rs *RemoteState) map[string]json.RawMessage {
 	if rs.m != nil {
 		return rs.m.Extensions
 	}
@@ -251,7 +251,7 @@ func uploadManifestOnly(
 	ar *arweave.Client,
 	state *localstate.State,
 	repoName string,
-	rs *remoteState,
+	rs *RemoteState,
 	res *pendingResolution,
 	newRefs map[string]string,
 	packs []manifest.PackEntry,
