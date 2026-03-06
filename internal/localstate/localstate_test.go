@@ -77,6 +77,9 @@ func TestPendingRoundtrip(t *testing.T) {
 		PackTxID:     "pack-tx-1",
 		ManifestTxID: "manifest-tx-1",
 		ParentTxID:   "parent-tx-0",
+		Refs:         map[string]string{"refs/heads/main": "abc123"},
+		PackBase:     "base-sha",
+		PackTip:      "tip-sha",
 		UploadedAt:   time.Unix(1000, 0),
 	}
 	packData := []byte("fake packfile data")
@@ -98,6 +101,12 @@ func TestPendingRoundtrip(t *testing.T) {
 	}
 	if loaded.ManifestTxID != state.ManifestTxID {
 		t.Errorf("ManifestTxID = %q, want %q", loaded.ManifestTxID, state.ManifestTxID)
+	}
+	if loaded.Refs["refs/heads/main"] != "abc123" {
+		t.Errorf("Refs mismatch: got %v", loaded.Refs)
+	}
+	if loaded.PackBase != "base-sha" || loaded.PackTip != "tip-sha" {
+		t.Errorf("PackBase/Tip mismatch: got %q/%q", loaded.PackBase, loaded.PackTip)
 	}
 	if string(loadedPack) != string(packData) {
 		t.Errorf("pack data mismatch")
@@ -126,6 +135,31 @@ func TestClearPending(t *testing.T) {
 	// idempotent
 	if err := s.ClearPending(); err != nil {
 		t.Errorf("ClearPending again: %v", err)
+	}
+}
+
+func TestPendingRefOnly(t *testing.T) {
+	s := newTestState(t)
+
+	state := &PendingState{
+		ManifestTxID: "manifest-tx-1",
+		ParentTxID:   "parent-tx-0",
+		Refs:         map[string]string{"refs/heads/main": "abc123"},
+		UploadedAt:   time.Now(),
+	}
+	if err := s.SavePending(state, nil); err != nil {
+		t.Fatalf("SavePending with nil pack: %v", err)
+	}
+
+	loaded, loadedPack, err := s.LoadPending()
+	if err != nil {
+		t.Fatalf("LoadPending: %v", err)
+	}
+	if loaded.ManifestTxID != "manifest-tx-1" {
+		t.Errorf("ManifestTxID = %q, want manifest-tx-1", loaded.ManifestTxID)
+	}
+	if loadedPack != nil {
+		t.Errorf("expected nil pack data, got %d bytes", len(loadedPack))
 	}
 }
 

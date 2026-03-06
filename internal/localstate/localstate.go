@@ -104,19 +104,27 @@ func (s *State) saveAppliedPacks(applied map[string]bool) error {
 // PendingState holds the state of a push that has been uploaded
 // but not yet confirmed on-chain.
 type PendingState struct {
-	PackTxID     string    `json:"pack_tx"`
-	ManifestTxID string    `json:"manifest_tx"`
-	ParentTxID   string    `json:"parent_tx"` // parent used when building this manifest
-	UploadedAt   time.Time `json:"uploaded_at"`
+	PackTxID     string            `json:"pack_tx"`
+	ManifestTxID string            `json:"manifest_tx"`
+	ParentTxID   string            `json:"parent_tx"`   // parent used when building this manifest
+	Refs         map[string]string `json:"refs"`         // full refs snapshot after this push
+	PackBase     string            `json:"pack_base"`    // Base commit SHA for pack tags
+	PackTip      string            `json:"pack_tip"`     // Tip commit SHA for pack tags
+	UploadedAt   time.Time         `json:"uploaded_at"`
 }
 
 // SavePending writes the pending state and pack data to disk.
 // packData is the raw packfile bytes kept for re-upload on drop.
+// packData may be nil for ref-only updates (no new pack).
 func (s *State) SavePending(state *PendingState, packData []byte) error {
-	// write packfile first
+	// write packfile (or remove stale one if nil)
 	packPath := filepath.Join(s.dir, pendingPackFile)
-	if err := os.WriteFile(packPath, packData, 0o600); err != nil {
-		return fmt.Errorf("localstate: write pending pack: %w", err)
+	if packData != nil {
+		if err := os.WriteFile(packPath, packData, 0o600); err != nil {
+			return fmt.Errorf("localstate: write pending pack: %w", err)
+		}
+	} else {
+		os.Remove(packPath) // ignore error — file may not exist
 	}
 
 	// write JSON metadata
@@ -150,6 +158,10 @@ func (s *State) LoadPending() (*PendingState, []byte, error) {
 
 	packPath := filepath.Join(s.dir, pendingPackFile)
 	packData, err := os.ReadFile(packPath)
+	if errors.Is(err, os.ErrNotExist) {
+		// ref-only update — no pack data
+		return &state, nil, nil
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("localstate: read pending pack: %w", err)
 	}
