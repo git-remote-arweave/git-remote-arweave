@@ -20,10 +20,7 @@ import (
 // TurboUploader uploads data items to Arweave via the ArDrive Turbo bundler.
 // Data items are signed with the AR JWK wallet (preserving repository identity)
 // and submitted as ANS-104 binary to the Turbo upload endpoint.
-const (
-	defaultPaymentGateway = "https://payment.ardrive.io"
-	devPaymentGateway     = "https://payment.ardrive.dev"
-)
+const defaultPaymentGateway = "https://payment.ardrive.io"
 
 type TurboUploader struct {
 	bundler        *goar.Bundler
@@ -49,16 +46,10 @@ func NewTurboUploader(cfg *config.Config) (*TurboUploader, error) {
 		return nil, fmt.Errorf("arweave: create bundler: %w", err)
 	}
 
-	gw := strings.TrimRight(cfg.TurboGateway, "/")
-	paymentGW := defaultPaymentGateway
-	if strings.Contains(gw, "ardrive.dev") {
-		paymentGW = devPaymentGateway
-	}
-
 	return &TurboUploader{
 		bundler:        bundler,
-		gateway:        gw,
-		paymentGateway: paymentGW,
+		gateway:        strings.TrimRight(cfg.TurboGateway, "/"),
+		paymentGateway: defaultPaymentGateway,
 		http:           &http.Client{Timeout: 120 * time.Second},
 	}, nil
 }
