@@ -141,7 +141,8 @@ func (h *handler) cmdList() error {
 		return err
 	}
 	h.remoteState = rs
-	refs := ops.ListRefs(rs)
+	pending, _, _ := h.state.LoadPending()
+	refs := ops.ListRefs(rs, pending)
 
 	for ref, sha := range refs {
 		if _, err := fmt.Fprintf(h.out, "%s %s\n", sha, ref); err != nil {
@@ -243,7 +244,10 @@ func (h *handler) cmdPush(firstLine string, scanner *bufio.Scanner) error {
 		return nil // report error per-ref, don't kill the helper
 	}
 
-	_ = result
+	if result.PackTxID != "" {
+		fmt.Fprintf(os.Stderr, "arweave: pack tx %s\n", result.PackTxID)
+	}
+	fmt.Fprintf(os.Stderr, "arweave: manifest tx %s\n", result.ManifestTxID)
 	for _, dst := range dstOrder {
 		if _, err := fmt.Fprintf(h.out, "ok %s\n", dst); err != nil {
 			return err

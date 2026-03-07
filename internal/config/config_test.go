@@ -9,6 +9,10 @@ func TestDefaults(t *testing.T) {
 	t.Setenv("ARWEAVE_WALLET", "")
 	t.Setenv("ARWEAVE_GATEWAY", "")
 	t.Setenv("ARWEAVE_DROP_TIMEOUT", "")
+	// Prevent git config from leaking into tests.
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_DIR", t.TempDir())
 
 	cfg, err := Load()
 	if err != nil {

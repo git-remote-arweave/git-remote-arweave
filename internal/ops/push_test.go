@@ -196,6 +196,61 @@ func TestCheckConflict_PendingParentMismatch(t *testing.T) {
 	}
 }
 
+func TestListRefs_NoPending(t *testing.T) {
+	rs := &RemoteState{
+		m: &manifest.Manifest{
+			Refs: map[string]string{"refs/heads/main": "aaa"},
+		},
+	}
+	refs := ListRefs(rs, nil)
+	if refs["refs/heads/main"] != "aaa" {
+		t.Errorf("expected aaa, got %q", refs["refs/heads/main"])
+	}
+}
+
+func TestListRefs_WithPending(t *testing.T) {
+	rs := &RemoteState{
+		m: &manifest.Manifest{
+			Refs: map[string]string{"refs/heads/main": "aaa", "refs/tags/v1": "ccc"},
+		},
+	}
+	pending := &localstate.PendingState{
+		Refs: map[string]string{"refs/heads/main": "bbb"},
+	}
+	refs := ListRefs(rs, pending)
+	if refs["refs/heads/main"] != "bbb" {
+		t.Errorf("pending should override: expected bbb, got %q", refs["refs/heads/main"])
+	}
+	if refs["refs/tags/v1"] != "ccc" {
+		t.Errorf("non-pending ref should survive: expected ccc, got %q", refs["refs/tags/v1"])
+	}
+}
+
+func TestListRefs_NoRemoteWithPending(t *testing.T) {
+	rs := &RemoteState{} // new repo, no manifest
+	pending := &localstate.PendingState{
+		Refs: map[string]string{"refs/heads/main": "aaa"},
+	}
+	refs := ListRefs(rs, pending)
+	if refs["refs/heads/main"] != "aaa" {
+		t.Errorf("expected aaa, got %q", refs["refs/heads/main"])
+	}
+}
+
+func TestListRefs_DoesNotMutateManifest(t *testing.T) {
+	m := &manifest.Manifest{
+		Refs: map[string]string{"refs/heads/main": "aaa"},
+	}
+	rs := &RemoteState{m: m}
+	pending := &localstate.PendingState{
+		Refs: map[string]string{"refs/heads/dev": "bbb"},
+	}
+	ListRefs(rs, pending)
+	if _, ok := m.Refs["refs/heads/dev"]; ok {
+		t.Error("ListRefs mutated the original manifest refs")
+	}
+}
+
 func newTestState(t *testing.T) *localstate.State {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), ".git")

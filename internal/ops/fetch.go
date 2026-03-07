@@ -13,12 +13,22 @@ import (
 )
 
 // ListRefs returns the ref list from a previously loaded remote state.
+// If pending is non-nil, its refs are overlaid on top of the remote refs
+// so that git sees the expected state while transactions are in mempool.
 // Returns an empty map if the repository does not exist yet.
-func ListRefs(rs *RemoteState) map[string]string {
-	if rs.m == nil {
-		return map[string]string{}
+func ListRefs(rs *RemoteState, pending *localstate.PendingState) map[string]string {
+	refs := map[string]string{}
+	if rs.m != nil {
+		for k, v := range rs.m.Refs {
+			refs[k] = v
+		}
 	}
-	return rs.m.Refs
+	if pending != nil {
+		for k, v := range pending.Refs {
+			refs[k] = v
+		}
+	}
+	return refs
 }
 
 // Fetch downloads and applies any new packs from the remote.
