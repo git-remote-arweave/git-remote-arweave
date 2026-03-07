@@ -2,9 +2,12 @@ package arweave
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -65,6 +68,20 @@ func New(cfg *config.Config) (*Client, error) {
 	return c, nil
 }
 
+// isLocal reports whether the gateway points to a loopback address (e.g. arlocal).
+func (c *Client) isLocal() bool {
+	u, err := url.Parse(c.gateway)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // Owner returns the wallet address. Empty string if no wallet is configured.
 func (c *Client) Owner() string {
 	if c.wallet == nil {
@@ -103,6 +120,14 @@ func (c *Client) Fetch(ctx context.Context, txID string) ([]byte, error) {
 	os.Stdout = orig
 	if err != nil {
 		return nil, fmt.Errorf("arweave: fetch %q: %w", txID, err)
+	}
+	// goar returns base64url-encoded strings from mainnet gateways
+	// but raw bytes from arlocal.
+	if !c.isLocal() {
+		decoded, decErr := base64.RawURLEncoding.DecodeString(string(data))
+		if decErr == nil {
+			return decoded, nil
+		}
 	}
 	return data, nil
 }

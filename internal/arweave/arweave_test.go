@@ -7,6 +7,28 @@ import (
 	"git-remote-arweave/internal/manifest"
 )
 
+func TestIsLocal(t *testing.T) {
+	tests := []struct {
+		gateway string
+		want    bool
+	}{
+		{"http://localhost:1984", true},
+		{"http://127.0.0.1:1984", true},
+		{"http://127.0.0.2:1984", true},
+		{"http://[::1]:1984", true},
+		{"https://arweave.net", false},
+		{"https://notlocalhost.com", false},
+		{"https://example.com/path/127.0.0.1", false},
+		{"https://ar.io", false},
+	}
+	for _, tt := range tests {
+		c := &Client{gateway: tt.gateway}
+		if got := c.isLocal(); got != tt.want {
+			t.Errorf("isLocal(%q) = %v, want %v", tt.gateway, got, tt.want)
+		}
+	}
+}
+
 func TestBuildLatestManifestQuery(t *testing.T) {
 	q := buildLatestManifestQuery("owner-addr", "my-repo")
 	for _, want := range []string{

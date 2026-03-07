@@ -210,12 +210,16 @@ func (h *handler) cmdPush(firstLine string, scanner *bufio.Scanner) error {
 	// Parse refspecs and resolve SHAs.
 	refUpdates := make(map[string]string)
 	var dstOrder []string // preserve order for response
+	force := false
 	for _, line := range lines {
 		// line is "push <refspec>"
 		spec := strings.TrimPrefix(line, "push ")
-		src, dst, err := parseRefSpec(spec)
+		src, dst, f, err := parseRefSpec(spec)
 		if err != nil {
 			return err
+		}
+		if f {
+			force = true
 		}
 		sha, err := h.resolveRef(src)
 		if err != nil {
@@ -227,6 +231,7 @@ func (h *handler) cmdPush(firstLine string, scanner *bufio.Scanner) error {
 
 	result, err := ops.Push(h.ctx, h.ar, h.repo, h.state, h.cfg, h.owner, h.repoName, &ops.PushInput{
 		RefUpdates: refUpdates,
+		Force:      force,
 	})
 	if err != nil {
 		for _, dst := range dstOrder {
@@ -262,12 +267,15 @@ func (h *handler) resolveRef(src string) (string, error) {
 }
 
 // parseRefSpec splits "src:dst" into source and destination refs.
-// A leading "+" (force push) is stripped.
-func parseRefSpec(spec string) (src, dst string, err error) {
-	spec = strings.TrimPrefix(spec, "+")
+// A leading "+" indicates a force push.
+func parseRefSpec(spec string) (src, dst string, force bool, err error) {
+	if strings.HasPrefix(spec, "+") {
+		force = true
+		spec = spec[1:]
+	}
 	parts := strings.SplitN(spec, ":", 2)
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("helper: invalid refspec %q", spec)
+		return "", "", false, fmt.Errorf("helper: invalid refspec %q", spec)
 	}
-	return parts[0], parts[1], nil
+	return parts[0], parts[1], force, nil
 }

@@ -38,19 +38,20 @@ func TestParseURL(t *testing.T) {
 
 func TestParseRefSpec(t *testing.T) {
 	tests := []struct {
-		spec    string
-		src     string
-		dst     string
-		wantErr bool
+		spec      string
+		src       string
+		dst       string
+		wantForce bool
+		wantErr   bool
 	}{
-		{"refs/heads/main:refs/heads/main", "refs/heads/main", "refs/heads/main", false},
-		{"+refs/heads/main:refs/heads/main", "refs/heads/main", "refs/heads/main", false}, // force push
-		{":refs/heads/old", "", "refs/heads/old", false}, // delete
-		{"no-colon", "", "", true},
+		{"refs/heads/main:refs/heads/main", "refs/heads/main", "refs/heads/main", false, false},
+		{"+refs/heads/main:refs/heads/main", "refs/heads/main", "refs/heads/main", true, false},
+		{":refs/heads/old", "", "refs/heads/old", false, false},
+		{"no-colon", "", "", false, true},
 	}
 
 	for _, tt := range tests {
-		src, dst, err := parseRefSpec(tt.spec)
+		src, dst, force, err := parseRefSpec(tt.spec)
 		if tt.wantErr {
 			if err == nil {
 				t.Errorf("parseRefSpec(%q): expected error", tt.spec)
@@ -61,8 +62,8 @@ func TestParseRefSpec(t *testing.T) {
 			t.Errorf("parseRefSpec(%q): unexpected error: %v", tt.spec, err)
 			continue
 		}
-		if src != tt.src || dst != tt.dst {
-			t.Errorf("parseRefSpec(%q) = (%q, %q), want (%q, %q)", tt.spec, src, dst, tt.src, tt.dst)
+		if src != tt.src || dst != tt.dst || force != tt.wantForce {
+			t.Errorf("parseRefSpec(%q) = (%q, %q, %v), want (%q, %q, %v)", tt.spec, src, dst, force, tt.src, tt.dst, tt.wantForce)
 		}
 	}
 }

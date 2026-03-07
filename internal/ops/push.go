@@ -21,6 +21,9 @@ type PushInput struct {
 	// RefUpdates maps ref names to their new commit SHAs.
 	// A SHA of all-zeros means "delete this ref".
 	RefUpdates map[string]string
+	// Force creates a new genesis manifest with a full packfile,
+	// ignoring any existing remote state.
+	Force bool
 }
 
 // Push uploads new objects and updates the remote ref manifest.
@@ -35,6 +38,10 @@ func Push(
 	owner, repoName string,
 	input *PushInput,
 ) (*PushResult, error) {
+	if input.Force {
+		return forcePush(ctx, ar, repo, state, repoName, input)
+	}
+
 	// 1. Resolve any pending push.
 	res, err := resolvePending(ctx, ar, state, cfg.DropTimeout, repoName)
 	if err != nil {
@@ -117,6 +124,76 @@ func Push(
 		ParentTxID:   parentTx,
 		Refs:         newRefs,
 		PackBase:     baseSHA,
+		PackTip:      tipSHA,
+		UploadedAt:   time.Now(),
+	}
+	if err := state.SavePending(pending, packData); err != nil {
+		return nil, fmt.Errorf("ops: save pending: %w", err)
+	}
+
+	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID}, nil
+}
+
+// forcePush creates a new genesis manifest with a full packfile,
+// ignoring any existing remote state. Old manifests and packs
+// remain on Arweave but are superseded by the new genesis.
+func forcePush(
+	ctx context.Context,
+	ar *arweave.Client,
+	repo *git.Repository,
+	state *localstate.State,
+	repoName string,
+	input *PushInput,
+) (*PushResult, error) {
+	// Clear local state — start fresh.
+	_ = state.ClearPending()
+
+	// Collect tips (no bases — full pack).
+	var tips []plumbing.Hash
+	zeroHash := plumbing.ZeroHash.String()
+	for _, sha := range input.RefUpdates {
+		if sha != zeroHash {
+			tips = append(tips, plumbing.NewHash(sha))
+		}
+	}
+	if len(tips) == 0 {
+		return nil, fmt.Errorf("ops: force push with no refs")
+	}
+
+	packData, err := pack.Generate(repo, nil, tips)
+	if err != nil {
+		return nil, fmt.Errorf("ops: generate pack: %w", err)
+	}
+
+	tipSHA := tips[0].String()
+	packTxID, err := ar.Upload(ctx, packData, manifest.PackTags(repoName, "", tipSHA))
+	if err != nil {
+		return nil, fmt.Errorf("ops: upload pack: %w", err)
+	}
+
+	m := manifest.NewGenesis()
+	m.Refs = input.RefUpdates
+	m.Packs = []manifest.PackEntry{{
+		TX:   packTxID,
+		Base: "",
+		Tip:  tipSHA,
+		Size: int64(len(packData)),
+	}}
+
+	manifestData, err := m.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
+	}
+
+	manifestTxID, err := ar.Upload(ctx, manifestData, manifest.RefsTags(repoName, ""))
+	if err != nil {
+		return nil, fmt.Errorf("ops: upload manifest: %w", err)
+	}
+
+	pending := &localstate.PendingState{
+		PackTxID:     packTxID,
+		ManifestTxID: manifestTxID,
+		Refs:         input.RefUpdates,
 		PackTip:      tipSHA,
 		UploadedAt:   time.Now(),
 	}
