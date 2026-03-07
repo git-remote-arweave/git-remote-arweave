@@ -40,6 +40,7 @@ func Fetch(
 	repo *git.Repository,
 	state *localstate.State,
 	rs *RemoteState,
+	pending *localstate.PendingState,
 ) (*FetchResult, error) {
 	if rs.m == nil {
 		return &FetchResult{Refs: map[string]string{}}, nil
@@ -68,8 +69,10 @@ func Fetch(
 		}
 	}
 
-	// Update remote-tracking refs.
-	for name, sha := range rs.m.Refs {
+	// Update remote-tracking refs, overlaying pending refs so that
+	// fetch doesn't downgrade tracking refs while transactions confirm.
+	effectiveRefs := ListRefs(rs, pending)
+	for name, sha := range effectiveRefs {
 		ref := plumbing.NewHashReference(plumbing.ReferenceName(name), plumbing.NewHash(sha))
 		if err := repo.Storer.SetReference(ref); err != nil {
 			return nil, fmt.Errorf("ops: set ref %q: %w", name, err)
@@ -81,5 +84,5 @@ func Fetch(
 		return nil, fmt.Errorf("ops: save last manifest: %w", err)
 	}
 
-	return &FetchResult{Refs: rs.m.Refs}, nil
+	return &FetchResult{Refs: effectiveRefs}, nil
 }

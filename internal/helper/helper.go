@@ -183,7 +183,8 @@ func (h *handler) cmdFetch(scanner *bufio.Scanner) error {
 		}
 	}
 	h.remoteState = nil // consumed
-	_, err := ops.Fetch(h.ctx, h.ar, h.repo, h.state, rs)
+	pending, _, _ := h.state.LoadPending()
+	_, err := ops.Fetch(h.ctx, h.ar, h.repo, h.state, rs, pending)
 	if err != nil {
 		return err
 	}
