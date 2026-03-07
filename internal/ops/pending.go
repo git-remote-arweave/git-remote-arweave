@@ -45,6 +45,7 @@ type pendingResolution struct {
 func resolvePending(
 	ctx context.Context,
 	ar *arweave.Client,
+	uploader arweave.Uploader,
 	state *localstate.State,
 	dropTimeout time.Duration,
 	repoName string,
@@ -84,6 +85,16 @@ func resolvePending(
 		}, nil
 
 	case arweave.StatusNotFound:
+		// Turbo guarantees delivery — never re-upload, just keep waiting.
+		if pending.Guaranteed {
+			return &pendingResolution{
+				outcome:    pendingInMempool,
+				packTxID:   pending.PackTxID,
+				parentTxID: pending.ParentTxID,
+				refs:       pending.Refs,
+			}, nil
+		}
+
 		// Apply drop timeout: if uploaded recently, treat as still pending.
 		if time.Since(pending.UploadedAt) < dropTimeout {
 			return &pendingResolution{
@@ -95,7 +106,7 @@ func resolvePending(
 		}
 
 		// Dropped — re-upload the pack. Push will build a fresh manifest.
-		newPackTxID, err := ar.Upload(ctx, packData, manifest.PackTags(repoName, pending.PackBase, pending.PackTip))
+		newPackTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, pending.PackBase, pending.PackTip))
 		if err != nil {
 			return nil, fmt.Errorf("ops: re-upload pack: %w", err)
 		}

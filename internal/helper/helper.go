@@ -86,6 +86,7 @@ func ParseURL(rawURL string) (owner, repoName string, err error) {
 type handler struct {
 	ctx      context.Context
 	ar       *arweave.Client
+	uploader arweave.Uploader
 	repo     *git.Repository
 	state    *localstate.State
 	cfg      *config.Config
@@ -231,7 +232,16 @@ func (h *handler) cmdPush(firstLine string, scanner *bufio.Scanner) error {
 		dstOrder = append(dstOrder, dst)
 	}
 
-	result, err := ops.Push(h.ctx, h.ar, h.repo, h.state, h.cfg, h.owner, h.repoName, &ops.PushInput{
+	// Lazily create the uploader on first push.
+	if h.uploader == nil {
+		u, err := arweave.NewUploader(h.cfg)
+		if err != nil {
+			return fmt.Errorf("helper: create uploader: %w", err)
+		}
+		h.uploader = u
+	}
+
+	result, err := ops.Push(h.ctx, h.ar, h.uploader, h.repo, h.state, h.cfg, h.owner, h.repoName, &ops.PushInput{
 		RefUpdates: refUpdates,
 		Force:      force,
 	})
@@ -249,6 +259,7 @@ func (h *handler) cmdPush(firstLine string, scanner *bufio.Scanner) error {
 		fmt.Fprintf(os.Stderr, "arweave: pack tx %s\n", result.PackTxID)
 	}
 	fmt.Fprintf(os.Stderr, "arweave: manifest tx %s\n", result.ManifestTxID)
+	h.reportCost(result)
 	for _, dst := range dstOrder {
 		if _, err := fmt.Fprintf(h.out, "ok %s\n", dst); err != nil {
 			return err
@@ -269,6 +280,31 @@ func (h *handler) resolveRef(src string) (string, error) {
 		return "", fmt.Errorf("helper: resolve ref %q: %w", src, err)
 	}
 	return ref.Hash().String(), nil
+}
+
+// reportCost prints upload cost and remaining balance to stderr
+// if the uploader supports cost reporting (e.g., Turbo).
+func (h *handler) reportCost(result *ops.PushResult) {
+	cr, ok := h.uploader.(arweave.CostReporter)
+	if !ok || result.BytesUploaded == 0 {
+		return
+	}
+
+	cost, err := cr.GetPriceForBytes(h.ctx, result.BytesUploaded)
+	if err == nil && cost > 0 {
+		fmt.Fprintf(os.Stderr, "arweave: cost %.6f credits (%d bytes)\n", wincToCredits(cost), result.BytesUploaded)
+	}
+
+	balance, err := cr.GetBalance(h.ctx, h.owner)
+	if err == nil {
+		fmt.Fprintf(os.Stderr, "arweave: balance %.6f credits\n", wincToCredits(balance))
+	}
+}
+
+// wincToCredits converts Winston Credits to a human-readable credits value.
+// 1 credit = 1e12 winc (same as 1 AR = 1e12 winston).
+func wincToCredits(winc int64) float64 {
+	return float64(winc) / 1e12
 }
 
 // parseRefSpec splits "src:dst" into source and destination refs.

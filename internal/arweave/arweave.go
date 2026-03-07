@@ -39,6 +39,39 @@ type ManifestInfo struct {
 	IsGenesis bool
 }
 
+// Uploader abstracts data upload to Arweave (L1 or via Turbo bundler).
+type Uploader interface {
+	Upload(ctx context.Context, data []byte, tags []manifest.Tag) (txID string, err error)
+	// Guaranteed reports whether the uploader guarantees delivery.
+	// Turbo guarantees settlement; L1 transactions can be dropped from mempool.
+	Guaranteed() bool
+}
+
+// CostReporter is optionally implemented by uploaders that can report
+// upload cost and remaining balance (e.g., TurboUploader).
+type CostReporter interface {
+	// GetPriceForBytes returns the cost in winc (Winston Credits) for uploading the given number of bytes.
+	GetPriceForBytes(ctx context.Context, numBytes int) (winc int64, err error)
+	// GetBalance returns the current balance in winc for the given wallet address.
+	GetBalance(ctx context.Context, address string) (winc int64, err error)
+}
+
+// NewUploader creates the appropriate Uploader based on cfg.Payment.
+func NewUploader(cfg *config.Config) (Uploader, error) {
+	switch cfg.Payment {
+	case config.PaymentTurbo:
+		return NewTurboUploader(cfg)
+	case config.PaymentNative:
+		c, err := New(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return c, nil
+	default:
+		return nil, fmt.Errorf("arweave: unknown payment method %q", cfg.Payment)
+	}
+}
+
 // Client wraps goar for upload/fetch/query operations.
 // wallet may be nil for read-only (fetch/clone) use.
 type Client struct {
@@ -89,6 +122,9 @@ func (c *Client) Owner() string {
 	}
 	return c.wallet.Owner()
 }
+
+// Guaranteed implements Uploader. L1 transactions can be dropped from mempool.
+func (c *Client) Guaranteed() bool { return false }
 
 // Upload signs and submits a data transaction to Arweave.
 // Requires a wallet to be configured.

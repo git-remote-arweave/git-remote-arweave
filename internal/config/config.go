@@ -9,8 +9,12 @@ import (
 )
 
 const (
-	DefaultGateway    = "https://arweave.net"
-	DefaultDropTimeout = 30 * time.Minute
+	DefaultGateway      = "https://arweave.net"
+	DefaultTurboGateway = "https://upload.ardrive.io"
+	DefaultDropTimeout  = 30 * time.Minute
+
+	PaymentNative = "native"
+	PaymentTurbo  = "turbo"
 )
 
 // Config holds all runtime configuration for git-remote-arweave.
@@ -23,6 +27,14 @@ type Config struct {
 	// Gateway is the Arweave gateway base URL.
 	Gateway string
 
+	// Payment selects the upload backend: "turbo" (default) or "native".
+	// Turbo uploads via ArDrive bundler (pay with SOL/ETH/fiat credits).
+	// Native uploads L1 transactions directly (pay with AR).
+	Payment string
+
+	// TurboGateway is the Turbo upload service URL.
+	TurboGateway string
+
 	// DropTimeout is how long to wait before treating a pending transaction
 	// as dropped (not found) rather than still in mempool.
 	DropTimeout time.Duration
@@ -31,8 +43,10 @@ type Config struct {
 // Load resolves configuration from env vars, git config, and defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Gateway:     DefaultGateway,
-		DropTimeout: DefaultDropTimeout,
+		Gateway:      DefaultGateway,
+		Payment:      PaymentTurbo,
+		TurboGateway: DefaultTurboGateway,
+		DropTimeout:  DefaultDropTimeout,
 	}
 
 	if v := os.Getenv("ARWEAVE_GATEWAY"); v != "" {
@@ -45,6 +59,21 @@ func Load() (*Config, error) {
 		cfg.Wallet = v
 	} else if v := gitConfig("arweave.wallet"); v != "" {
 		cfg.Wallet = v
+	}
+
+	if v := os.Getenv("ARWEAVE_PAYMENT"); v != "" {
+		cfg.Payment = v
+	} else if v := gitConfig("arweave.payment"); v != "" {
+		cfg.Payment = v
+	}
+	if cfg.Payment != PaymentNative && cfg.Payment != PaymentTurbo {
+		return nil, fmt.Errorf("invalid ARWEAVE_PAYMENT %q: must be %q or %q", cfg.Payment, PaymentNative, PaymentTurbo)
+	}
+
+	if v := os.Getenv("ARWEAVE_TURBO_GATEWAY"); v != "" {
+		cfg.TurboGateway = v
+	} else if v := gitConfig("arweave.turboGateway"); v != "" {
+		cfg.TurboGateway = v
 	}
 
 	if v := os.Getenv("ARWEAVE_DROP_TIMEOUT"); v != "" {

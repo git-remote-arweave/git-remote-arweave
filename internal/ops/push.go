@@ -32,6 +32,7 @@ type PushInput struct {
 func Push(
 	ctx context.Context,
 	ar *arweave.Client,
+	uploader arweave.Uploader,
 	repo *git.Repository,
 	state *localstate.State,
 	cfg *config.Config,
@@ -39,11 +40,11 @@ func Push(
 	input *PushInput,
 ) (*PushResult, error) {
 	if input.Force {
-		return forcePush(ctx, ar, repo, state, repoName, input)
+		return forcePush(ctx, uploader, repo, state, repoName, input)
 	}
 
 	// 1. Resolve any pending push.
-	res, err := resolvePending(ctx, ar, state, cfg.DropTimeout, repoName)
+	res, err := resolvePending(ctx, ar, uploader, state, cfg.DropTimeout, repoName)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +70,7 @@ func Push(
 	tips, bases := computePackRange(input.RefUpdates, effectiveRefs)
 	if len(tips) == 0 {
 		// Ref-only update (e.g., delete). No new objects to upload.
-		return uploadManifestOnly(ctx, ar, state, repoName, rs, res, newRefs, effectivePacks)
+		return uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks)
 	}
 
 	// 7. Generate packfile.
@@ -83,7 +84,7 @@ func Push(
 	if len(bases) > 0 {
 		baseSHA = bases[0].String()
 	}
-	packTxID, err := ar.Upload(ctx, packData, manifest.PackTags(repoName, baseSHA, tipSHA))
+	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, baseSHA, tipSHA))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload pack: %w", err)
 	}
@@ -112,7 +113,7 @@ func Push(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := ar.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -126,12 +127,13 @@ func Push(
 		PackBase:     baseSHA,
 		PackTip:      tipSHA,
 		UploadedAt:   time.Now(),
+		Guaranteed:   uploader.Guaranteed(),
 	}
 	if err := state.SavePending(pending, packData); err != nil {
 		return nil, fmt.Errorf("ops: save pending: %w", err)
 	}
 
-	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID}, nil
+	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID, BytesUploaded: len(packData) + len(manifestData)}, nil
 }
 
 // forcePush creates a new genesis manifest with a full packfile,
@@ -139,7 +141,7 @@ func Push(
 // remain on Arweave but are superseded by the new genesis.
 func forcePush(
 	ctx context.Context,
-	ar *arweave.Client,
+	uploader arweave.Uploader,
 	repo *git.Repository,
 	state *localstate.State,
 	repoName string,
@@ -166,7 +168,7 @@ func forcePush(
 	}
 
 	tipSHA := tips[0].String()
-	packTxID, err := ar.Upload(ctx, packData, manifest.PackTags(repoName, "", tipSHA))
+	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, "", tipSHA))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload pack: %w", err)
 	}
@@ -185,7 +187,7 @@ func forcePush(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := ar.Upload(ctx, manifestData, manifest.RefsTags(repoName, ""))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, ""))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -196,12 +198,13 @@ func forcePush(
 		Refs:         input.RefUpdates,
 		PackTip:      tipSHA,
 		UploadedAt:   time.Now(),
+		Guaranteed:   uploader.Guaranteed(),
 	}
 	if err := state.SavePending(pending, packData); err != nil {
 		return nil, fmt.Errorf("ops: save pending: %w", err)
 	}
 
-	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID}, nil
+	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID, BytesUploaded: len(packData) + len(manifestData)}, nil
 }
 
 // checkConflict verifies that the local parent expectation matches on-chain state.
@@ -325,7 +328,7 @@ func extensions(rs *RemoteState) map[string]json.RawMessage {
 // uploadManifestOnly handles ref-only updates (no new pack data).
 func uploadManifestOnly(
 	ctx context.Context,
-	ar *arweave.Client,
+	uploader arweave.Uploader,
 	state *localstate.State,
 	repoName string,
 	rs *RemoteState,
@@ -349,7 +352,7 @@ func uploadManifestOnly(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := ar.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -359,10 +362,11 @@ func uploadManifestOnly(
 		ParentTxID:   parentTx,
 		Refs:         newRefs,
 		UploadedAt:   time.Now(),
+		Guaranteed:   uploader.Guaranteed(),
 	}
 	if err := state.SavePending(pending, nil); err != nil {
 		return nil, fmt.Errorf("ops: save pending: %w", err)
 	}
 
-	return &PushResult{ManifestTxID: manifestTxID}, nil
+	return &PushResult{ManifestTxID: manifestTxID, BytesUploaded: len(manifestData)}, nil
 }

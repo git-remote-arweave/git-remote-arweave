@@ -111,6 +111,7 @@ type PendingState struct {
 	PackBase     string            `json:"pack_base"`    // Base commit SHA for pack tags
 	PackTip      string            `json:"pack_tip"`     // Tip commit SHA for pack tags
 	UploadedAt   time.Time         `json:"uploaded_at"`
+	Guaranteed   bool              `json:"guaranteed,omitempty"` // true for Turbo uploads (delivery guaranteed, no re-upload)
 }
 
 // SavePending writes the pending state and pack data to disk.

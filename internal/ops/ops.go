@@ -10,8 +10,9 @@ import (
 
 // PushResult contains information about a completed push operation.
 type PushResult struct {
-	PackTxID     string
-	ManifestTxID string
+	PackTxID      string
+	ManifestTxID  string
+	BytesUploaded int // total bytes uploaded (pack + manifest)
 }
 
 // FetchResult contains the refs from the latest remote manifest.
