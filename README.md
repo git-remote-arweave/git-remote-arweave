@@ -246,6 +246,7 @@ turbo crypto-fund \
   --value 0.05 \
   --token solana \
   --wallet-file solana-devnet.json \
+  --address <your-arweave-address> \
   --dev
 ```
 
