@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	git "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
 
 	"git-remote-arweave/internal/arweave"
 	"git-remote-arweave/internal/localstate"
@@ -32,15 +31,13 @@ func ListRefs(rs *RemoteState, pending *localstate.PendingState) map[string]stri
 }
 
 // Fetch downloads and applies any new packs from the remote.
-// It updates local remote-tracking refs and the applied-packs set.
-// Returns the current remote refs.
+// It does NOT update refs — git manages ref updates based on the list output.
 func Fetch(
 	ctx context.Context,
 	ar *arweave.Client,
 	repo *git.Repository,
 	state *localstate.State,
 	rs *RemoteState,
-	pending *localstate.PendingState,
 ) (*FetchResult, error) {
 	if rs.m == nil {
 		return &FetchResult{Refs: map[string]string{}}, nil
@@ -69,20 +66,14 @@ func Fetch(
 		}
 	}
 
-	// Update remote-tracking refs, overlaying pending refs so that
-	// fetch doesn't downgrade tracking refs while transactions confirm.
-	effectiveRefs := ListRefs(rs, pending)
-	for name, sha := range effectiveRefs {
-		ref := plumbing.NewHashReference(plumbing.ReferenceName(name), plumbing.NewHash(sha))
-		if err := repo.Storer.SetReference(ref); err != nil {
-			return nil, fmt.Errorf("ops: set ref %q: %w", name, err)
-		}
-	}
+	// Do NOT update refs here — git manages ref updates based on the
+	// list output. Setting refs from the helper causes "initial ref
+	// transaction called with existing refs" crashes during clone.
 
 	// Record the latest manifest for conflict detection on next push.
 	if err := state.SaveLastManifestTxID(rs.manifestTxID); err != nil {
 		return nil, fmt.Errorf("ops: save last manifest: %w", err)
 	}
 
-	return &FetchResult{Refs: effectiveRefs}, nil
+	return &FetchResult{Refs: rs.m.Refs}, nil
 }
