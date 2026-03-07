@@ -190,6 +190,10 @@ git clone arweave://$ADDR/test-repo
 go test ./...
 ```
 
+## Support
+
+If you find this project useful, consider sending AR to `JBw0K8Fw7aIIDmvJepH3Aa7hapVhxUwVkzbzL24_dBw` to cover maintenance, development and transaction fee costs.
+
 ## License
 
 [Apache License 2.0](LICENSE)
