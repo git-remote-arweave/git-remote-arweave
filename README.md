@@ -87,7 +87,17 @@ Typical git pushes produce packfiles of 1--100 KB plus a small JSON manifest. At
 
 ## Installation
 
-Build from source (requires Go 1.22+). Since you need `git-remote-arweave` to clone from Arweave, install from the GitHub mirror:
+```sh
+curl -fsSL https://raw.githubusercontent.com/git-remote-arweave/git-remote-arweave/refs/heads/main/install.sh | bash
+```
+
+Downloads a temporary Go toolchain, builds from source, installs to `~/.local/bin/`. No root required. Works on Linux and macOS (amd64/arm64).
+
+Make sure `~/.local/bin` is in your `PATH`. Git discovers remote helpers by looking for `git-remote-<scheme>` executables.
+
+### Build from source manually
+
+Requires Go 1.22+:
 
 ```sh
 git clone https://github.com/git-remote-arweave/git-remote-arweave
@@ -95,7 +105,7 @@ cd git-remote-arweave
 make install
 ```
 
-This builds the binary with version info from git tags and installs it to `$(go env GOPATH)/bin/`. Make sure this directory is in your `PATH`. Git discovers remote helpers by looking for `git-remote-<scheme>` executables.
+Installs to `$(go env GOPATH)/bin/`.
 
 ## Configuration
 
