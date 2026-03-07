@@ -8,6 +8,12 @@ git push origin main
 git clone arweave://<wallet-address>/my-project
 ```
 
+The canonical repository lives on Arweave itself. GitHub is a read-only mirror.
+
+```
+arweave://JBw0K8Fw7aIIDmvJepH3Aa7hapVhxUwVkzbzL24_dBw/git-remote-arweave
+```
+
 ## How it works
 
 Every `git push` uploads two Arweave transactions:
@@ -31,7 +37,7 @@ On `git fetch`, the client compares the manifest's pack list against a local set
 
 ## Installation
 
-Build from source (requires Go 1.22+):
+Build from source (requires Go 1.22+). Since you need `git-remote-arweave` to clone from Arweave, install from the GitHub mirror:
 
 ```sh
 git clone https://github.com/git-remote-arweave/git-remote-arweave
@@ -168,7 +174,7 @@ export ARWEAVE_WALLET=./wallet.json
 ADDR=<address-from-previous-step>
 
 # Build
-go build -o git-remote-arweave ./cmd/git-remote-arweave/
+make build
 export PATH="$PWD:$PATH"
 
 # Push
@@ -187,7 +193,7 @@ git clone arweave://$ADDR/test-repo
 ### Run tests
 
 ```sh
-go test ./...
+make test
 ```
 
 ## Support
