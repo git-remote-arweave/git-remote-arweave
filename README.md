@@ -36,10 +36,10 @@ Build from source (requires Go 1.22+):
 ```sh
 git clone https://github.com/git-remote-arweave/git-remote-arweave
 cd git-remote-arweave
-go build -o git-remote-arweave ./cmd/git-remote-arweave/
+make install
 ```
 
-Place the `git-remote-arweave` binary somewhere in your `PATH`. Git discovers remote helpers by looking for `git-remote-<scheme>` executables.
+This builds the binary with version info from git tags and installs it to `$(go env GOPATH)/bin/`. Make sure this directory is in your `PATH`. Git discovers remote helpers by looking for `git-remote-<scheme>` executables.
 
 ## Configuration
 
