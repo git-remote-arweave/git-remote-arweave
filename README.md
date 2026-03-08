@@ -73,7 +73,7 @@ turbo token-price --byte-count 10485760 --token solana
 
 ### How much does a push cost?
 
-Typical git pushes produce packfiles of 1--100 KB plus a small JSON manifest. At current rates, a single push costs a fraction of a cent. You can push hundreds of times on $1 of credits.
+Typical git pushes produce packfiles of 1--100 KB plus a small JSON manifest. Turbo subsidizes uploads under 100 KiB, so most regular pushes are **free**. Larger pushes cost a fraction of a cent -- you can push hundreds of times on $1 of credits.
 
 ## Key design decisions
 
