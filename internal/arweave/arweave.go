@@ -2,13 +2,12 @@ package arweave
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -146,24 +145,28 @@ func (c *Client) Upload(ctx context.Context, data []byte, tags []manifest.Tag) (
 }
 
 // Fetch downloads raw transaction data by tx-id.
+// Uses the gateway's /{id} endpoint which resolves both L1 transactions
+// and bundled data items (ANS-104), unlike goar's tx/{id}/data which
+// only works for L1 transactions.
 func (c *Client) Fetch(ctx context.Context, txID string) ([]byte, error) {
-	// goar prints download progress to stdout via fmt.Printf, which
-	// corrupts the git remote helper protocol. Redirect stdout to
-	// stderr for the duration of the call.
-	orig := os.Stdout
-	os.Stdout = os.Stderr
-	data, err := c.goarClient.GetTransactionData(txID)
-	os.Stdout = orig
+	fetchURL := c.gateway + "/" + txID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("arweave: fetch %q: %w", txID, err)
 	}
-	// goar returns base64url-encoded strings from mainnet gateways
-	// but raw bytes from arlocal.
-	if !c.isLocal() {
-		decoded, decErr := base64.RawURLEncoding.DecodeString(string(data))
-		if decErr == nil {
-			return decoded, nil
-		}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("arweave: fetch %q: %w", txID, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("arweave: fetch %q: %s", txID, resp.Status)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("arweave: fetch %q: read body: %w", txID, err)
 	}
 	return data, nil
 }

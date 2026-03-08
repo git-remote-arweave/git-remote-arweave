@@ -58,6 +58,34 @@ func resolvePending(
 		return &pendingResolution{outcome: noPending}, nil
 	}
 
+	// For guaranteed uploads (Turbo), check if the data is accessible
+	// via the gateway. Turbo bundles data items (ANS-104) which are not
+	// visible to goar's L1 tx/{id}/status endpoint, but are available
+	// through the gateway's /{id} endpoint once indexed.
+	if pending.Guaranteed {
+		_, fetchErr := ar.Fetch(ctx, pending.ManifestTxID)
+		if fetchErr == nil {
+			// Data is accessible — treat as confirmed.
+			if err := state.MarkApplied(pending.PackTxID); err != nil {
+				return nil, fmt.Errorf("ops: mark applied: %w", err)
+			}
+			if err := state.SaveLastManifestTxID(pending.ManifestTxID); err != nil {
+				return nil, fmt.Errorf("ops: save last manifest: %w", err)
+			}
+			if err := state.ClearPending(); err != nil {
+				return nil, fmt.Errorf("ops: clear pending: %w", err)
+			}
+			return &pendingResolution{outcome: pendingConfirmed}, nil
+		}
+		// Not yet accessible — keep waiting.
+		return &pendingResolution{
+			outcome:    pendingInMempool,
+			packTxID:   pending.PackTxID,
+			parentTxID: pending.ParentTxID,
+			refs:       pending.Refs,
+		}, nil
+	}
+
 	status, err := ar.TxStatus(ctx, pending.ManifestTxID)
 	if err != nil {
 		return nil, fmt.Errorf("ops: check tx status %q: %w", pending.ManifestTxID, err)
@@ -85,15 +113,6 @@ func resolvePending(
 		}, nil
 
 	case arweave.StatusNotFound:
-		// Turbo guarantees delivery — never re-upload, just keep waiting.
-		if pending.Guaranteed {
-			return &pendingResolution{
-				outcome:    pendingInMempool,
-				packTxID:   pending.PackTxID,
-				parentTxID: pending.ParentTxID,
-				refs:       pending.Refs,
-			}, nil
-		}
 
 		// Apply drop timeout: if uploaded recently, treat as still pending.
 		if time.Since(pending.UploadedAt) < dropTimeout {
