@@ -40,6 +40,9 @@ type pendingResolution struct {
 	// refs is the full refs snapshot from the pending push.
 	// Set when outcome is pendingInMempool or pendingReUploaded.
 	refs map[string]string
+	// packs is the full pack list from the pending manifest.
+	// Used to recover pack history when the on-chain manifest is unfetchable.
+	packs []manifest.PackEntry
 }
 
 // resolvePending checks and resolves any pending push state.
@@ -87,6 +90,7 @@ func resolvePending(
 			manifestTxID: pending.ManifestTxID,
 			parentTxID:   pending.ParentTxID,
 			refs:         pending.Refs,
+			packs:        pending.Packs,
 		}, nil
 	}
 
@@ -115,6 +119,7 @@ func resolvePending(
 			manifestTxID: pending.ManifestTxID,
 			parentTxID:   pending.ParentTxID,
 			refs:         pending.Refs,
+			packs:        pending.Packs,
 		}, nil
 
 	case arweave.StatusNotFound:
@@ -127,6 +132,7 @@ func resolvePending(
 				manifestTxID: pending.ManifestTxID,
 				parentTxID:   pending.ParentTxID,
 				refs:         pending.Refs,
+				packs:        pending.Packs,
 			}, nil
 		}
 
@@ -138,12 +144,15 @@ func resolvePending(
 
 		// Update pending with new pack tx-id and reset timer.
 		newPending := &localstate.PendingState{
-			PackTxID:   newPackTxID,
-			ParentTxID: pending.ParentTxID,
-			Refs:       pending.Refs,
-			PackBase:   pending.PackBase,
-			PackTip:    pending.PackTip,
-			UploadedAt: time.Now(),
+			PackTxID:     newPackTxID,
+			ManifestTxID: pending.ManifestTxID,
+			ParentTxID:   pending.ParentTxID,
+			Refs:         pending.Refs,
+			Packs:        pending.Packs,
+			PackBase:     pending.PackBase,
+			PackTip:      pending.PackTip,
+			UploadedAt:   time.Now(),
+			Guaranteed:   pending.Guaranteed,
 		}
 		if err := state.SavePending(newPending, packData); err != nil {
 			return nil, fmt.Errorf("ops: save re-uploaded pending: %w", err)
@@ -155,6 +164,7 @@ func resolvePending(
 			manifestTxID: pending.ManifestTxID,
 			parentTxID:   pending.ParentTxID,
 			refs:         pending.Refs,
+			packs:        pending.Packs,
 		}, nil
 
 	default:

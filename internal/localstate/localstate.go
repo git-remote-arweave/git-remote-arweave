@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"git-remote-arweave/internal/manifest"
 )
 
 const (
@@ -104,14 +106,15 @@ func (s *State) saveAppliedPacks(applied map[string]bool) error {
 // PendingState holds the state of a push that has been uploaded
 // but not yet confirmed on-chain.
 type PendingState struct {
-	PackTxID     string            `json:"pack_tx"`
-	ManifestTxID string            `json:"manifest_tx"`
-	ParentTxID   string            `json:"parent_tx"`   // parent used when building this manifest
-	Refs         map[string]string `json:"refs"`         // full refs snapshot after this push
-	PackBase     string            `json:"pack_base"`    // Base commit SHA for pack tags
-	PackTip      string            `json:"pack_tip"`     // Tip commit SHA for pack tags
-	UploadedAt   time.Time         `json:"uploaded_at"`
-	Guaranteed   bool              `json:"guaranteed,omitempty"` // true for Turbo uploads (delivery guaranteed, no re-upload)
+	PackTxID     string               `json:"pack_tx"`
+	ManifestTxID string               `json:"manifest_tx"`
+	ParentTxID   string               `json:"parent_tx"`            // parent used when building this manifest
+	Refs         map[string]string    `json:"refs"`                 // full refs snapshot after this push
+	Packs        []manifest.PackEntry `json:"packs,omitempty"`      // full pack list (for recovery when manifest is unfetchable)
+	PackBase     string               `json:"pack_base"`            // Base commit SHA for pack tags
+	PackTip      string               `json:"pack_tip"`             // Tip commit SHA for pack tags
+	UploadedAt   time.Time            `json:"uploaded_at"`
+	Guaranteed   bool                 `json:"guaranteed,omitempty"` // true for Turbo uploads (delivery guaranteed, no re-upload)
 }
 
 // SavePending writes the pending state and pack data to disk.

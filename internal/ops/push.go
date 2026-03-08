@@ -135,6 +135,7 @@ func Push(
 		ManifestTxID: manifestTxID,
 		ParentTxID:   parentTx,
 		Refs:         newRefs,
+		Packs:        allPacks,
 		PackBase:     baseSHA,
 		PackTip:      tipSHA,
 		UploadedAt:   time.Now(),
@@ -207,6 +208,7 @@ func forcePush(
 		PackTxID:     packTxID,
 		ManifestTxID: manifestTxID,
 		Refs:         input.RefUpdates,
+		Packs:        m.Packs,
 		PackTip:      tipSHA,
 		UploadedAt:   time.Now(),
 		Guaranteed:   uploader.Guaranteed(),
@@ -275,13 +277,20 @@ func effectiveState(rs *RemoteState, res *pendingResolution) (map[string]string,
 	}
 
 	// Packs: on-chain packs + pending pack.
+	// When rs.m is nil but we have pending packs (e.g., on-chain manifest
+	// unfetchable), use the pending pack list which includes the full history.
 	var packs []manifest.PackEntry
 	if rs.m != nil {
 		packs = make([]manifest.PackEntry, len(rs.m.Packs))
 		copy(packs, rs.m.Packs)
-	}
-	if hasPending {
-		packs = append(packs, manifest.PackEntry{TX: res.packTxID})
+		if hasPending {
+			packs = append(packs, manifest.PackEntry{TX: res.packTxID})
+		}
+	} else if hasPending && len(res.packs) > 0 {
+		packs = make([]manifest.PackEntry, len(res.packs))
+		copy(packs, res.packs)
+	} else if hasPending {
+		packs = []manifest.PackEntry{{TX: res.packTxID}}
 	}
 
 	return refs, packs
@@ -372,6 +381,7 @@ func uploadManifestOnly(
 		ManifestTxID: manifestTxID,
 		ParentTxID:   parentTx,
 		Refs:         newRefs,
+		Packs:        packs,
 		UploadedAt:   time.Now(),
 		Guaranteed:   uploader.Guaranteed(),
 	}

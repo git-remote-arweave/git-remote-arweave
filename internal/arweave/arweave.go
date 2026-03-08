@@ -74,19 +74,29 @@ func NewUploader(cfg *config.Config) (Uploader, error) {
 // Client wraps goar for upload/fetch/query operations.
 // wallet may be nil for read-only (fetch/clone) use.
 type Client struct {
-	gateway    string
-	goarClient *goar.Client
-	wallet     *goar.Wallet
-	http       *http.Client
+	gateway      string // GraphQL + TxStatus (arweave.net — indexes ANS-104 data items)
+	fetchGateway string // data download (turbo-gateway.com — serves bundled items fast)
+	goarClient   *goar.Client
+	wallet       *goar.Wallet
+	http         *http.Client
 }
 
 // New creates a Client. If cfg.Wallet is set, loads the wallet for push support.
 // If cfg.Wallet is empty, the client is read-only.
 func New(cfg *config.Config) (*Client, error) {
+	gw := strings.TrimRight(cfg.Gateway, "/")
+	fetchGW := gw
+	if cfg.Payment == config.PaymentTurbo {
+		// turbo-gateway.com serves Turbo-uploaded bundled data items faster
+		// than arweave.net, which may return 404 until the bundle is indexed.
+		fetchGW = config.DefaultFetchGateway
+	}
+
 	c := &Client{
-		gateway:    strings.TrimRight(cfg.Gateway, "/"),
-		goarClient: goar.NewClient(cfg.Gateway),
-		http:       &http.Client{Timeout: 30 * time.Second},
+		gateway:      gw,
+		fetchGateway: fetchGW,
+		goarClient:   goar.NewClient(cfg.Gateway),
+		http:         &http.Client{Timeout: 30 * time.Second},
 	}
 
 	if cfg.Wallet != "" {
@@ -149,7 +159,7 @@ func (c *Client) Upload(ctx context.Context, data []byte, tags []manifest.Tag) (
 // and bundled data items (ANS-104), unlike goar's tx/{id}/data which
 // only works for L1 transactions.
 func (c *Client) Fetch(ctx context.Context, txID string) ([]byte, error) {
-	fetchURL := c.gateway + "/" + txID
+	fetchURL := c.fetchGateway + "/" + txID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("arweave: fetch %q: %w", txID, err)
