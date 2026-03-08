@@ -31,6 +31,9 @@ type pendingResolution struct {
 	// packTxID is the pack tx-id to include in the next manifest.
 	// Set when outcome is pendingInMempool or pendingReUploaded.
 	packTxID string
+	// manifestTxID is the pending manifest's tx-id.
+	// Set when outcome is pendingInMempool or pendingReUploaded.
+	manifestTxID string
 	// parentTxID is the Parent-Tx the pending manifest was built against.
 	// Set when outcome is pendingInMempool or pendingReUploaded.
 	parentTxID string
@@ -79,10 +82,11 @@ func resolvePending(
 		}
 		// Not yet accessible — keep waiting.
 		return &pendingResolution{
-			outcome:    pendingInMempool,
-			packTxID:   pending.PackTxID,
-			parentTxID: pending.ParentTxID,
-			refs:       pending.Refs,
+			outcome:      pendingInMempool,
+			packTxID:     pending.PackTxID,
+			manifestTxID: pending.ManifestTxID,
+			parentTxID:   pending.ParentTxID,
+			refs:         pending.Refs,
 		}, nil
 	}
 
@@ -106,10 +110,11 @@ func resolvePending(
 
 	case arweave.StatusPending:
 		return &pendingResolution{
-			outcome:    pendingInMempool,
-			packTxID:   pending.PackTxID,
-			parentTxID: pending.ParentTxID,
-			refs:       pending.Refs,
+			outcome:      pendingInMempool,
+			packTxID:     pending.PackTxID,
+			manifestTxID: pending.ManifestTxID,
+			parentTxID:   pending.ParentTxID,
+			refs:         pending.Refs,
 		}, nil
 
 	case arweave.StatusNotFound:
@@ -144,10 +149,11 @@ func resolvePending(
 		}
 
 		return &pendingResolution{
-			outcome:    pendingReUploaded,
-			packTxID:   newPackTxID,
-			parentTxID: pending.ParentTxID,
-			refs:       pending.Refs,
+			outcome:      pendingReUploaded,
+			packTxID:     newPackTxID,
+			manifestTxID: pending.ManifestTxID,
+			parentTxID:   pending.ParentTxID,
+			refs:         pending.Refs,
 		}, nil
 
 	default:

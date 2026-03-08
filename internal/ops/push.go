@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -52,7 +53,17 @@ func Push(
 	// 2. Load remote state.
 	rs, err := LoadRemoteState(ctx, ar, owner, repoName)
 	if err != nil {
-		return nil, err
+		var mfe *ManifestFetchError
+		hasPending := res.outcome == pendingInMempool || res.outcome == pendingReUploaded
+		if errors.As(err, &mfe) && hasPending && mfe.TxID == res.manifestTxID {
+			// The latest manifest in GraphQL is our own pending manifest
+			// whose body isn't fetchable yet (Turbo bundle not settled).
+			// We can proceed using the pending state — no need to parse
+			// the manifest body since effectiveState uses pending refs.
+			rs = &RemoteState{manifestTxID: mfe.TxID}
+		} else {
+			return nil, err
+		}
 	}
 
 	// 3. Conflict detection: verify our known parent matches on-chain.

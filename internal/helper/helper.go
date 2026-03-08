@@ -138,22 +138,29 @@ func (h *handler) cmdCapabilities() error {
 }
 
 func (h *handler) cmdList() error {
+	pending, _, _ := h.state.LoadPending()
+
 	rs, err := ops.LoadRemoteState(h.ctx, h.ar, h.owner, h.repoName)
 	if err != nil {
 		var mfe *ops.ManifestFetchError
 		if errors.As(err, &mfe) {
-			// Manifest exists in GraphQL but body is unavailable (e.g.,
-			// bundled via devnet). Warn and report empty refs so that
-			// force push can overwrite the broken state.
-			fmt.Fprintf(os.Stderr, "arweave: warning: %v\n", err)
-			fmt.Fprintf(os.Stderr, "arweave: remote state unreadable; use git push --force to overwrite\n")
-			rs = &ops.RemoteState{}
+			if pending != nil && pending.ManifestTxID == mfe.TxID {
+				// The unfetchable manifest is our own pending push
+				// (Turbo bundle not settled yet). This is expected —
+				// use pending refs, no warning needed.
+				fmt.Fprintf(os.Stderr, "arweave: pending manifest %s not yet settled\n", mfe.TxID)
+				rs = &ops.RemoteState{}
+			} else {
+				// Genuinely unreadable remote state.
+				fmt.Fprintf(os.Stderr, "arweave: warning: %v\n", err)
+				fmt.Fprintf(os.Stderr, "arweave: remote state unreadable; use git push --force to overwrite\n")
+				rs = &ops.RemoteState{}
+			}
 		} else {
 			return err
 		}
 	}
 	h.remoteState = rs
-	pending, _, _ := h.state.LoadPending()
 	refs := ops.ListRefs(rs, pending)
 
 	for ref, sha := range refs {

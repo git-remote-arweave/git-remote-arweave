@@ -1,6 +1,9 @@
 package helper
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestParseURL(t *testing.T) {
 	tests := []struct {
@@ -64,6 +67,26 @@ func TestParseRefSpec(t *testing.T) {
 		}
 		if src != tt.src || dst != tt.dst || force != tt.wantForce {
 			t.Errorf("parseRefSpec(%q) = (%q, %q, %v), want (%q, %q, %v)", tt.spec, src, dst, force, tt.src, tt.dst, tt.wantForce)
+		}
+	}
+}
+
+func TestWincToCredits(t *testing.T) {
+	tests := []struct {
+		winc int64
+		want float64
+	}{
+		{0, 0},
+		{1_000_000_000_000, 1.0},       // 1 credit
+		{500_000_000_000, 0.5},          // 0.5 credits
+		{25_000_000, 0.000025},          // typical small push
+		{6_500_000_000, 0.006500},       // typical balance
+	}
+
+	for _, tt := range tests {
+		got := wincToCredits(tt.winc)
+		if math.Abs(got-tt.want) > 1e-9 {
+			t.Errorf("wincToCredits(%d) = %f, want %f", tt.winc, got, tt.want)
 		}
 	}
 }
