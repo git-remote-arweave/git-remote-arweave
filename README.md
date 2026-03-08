@@ -29,7 +29,7 @@ On `git fetch`, the client compares the manifest's pack list against a local set
 
 By default, uploads go through [ArDrive Turbo](https://ardrive.io) -- a bundling service that accepts payment in SOL, ETH, MATIC, USDC, AR, ARIO, or fiat (credit card via Stripe). Turbo works on a **prepaid credit** model: you top up your balance, and each push deducts from it.
 
-The alternative is **native L1** upload, which sends transactions directly to the Arweave network and requires AR tokens in the wallet. This is mainly useful for local development with arlocal.
+The alternative is **native L1** upload, which sends transactions directly to the Arweave network and requires AR tokens in the wallet. L1 transactions have a minimum size granularity of 256 KiB, so small pushes (typical for git) cost orders of magnitude more than via Turbo. Native L1 is not recommended for regular use.
 
 ### Top up Turbo credits
 
@@ -124,7 +124,7 @@ The wallet is an Arweave JWK keyfile (JSON). It is only required for push operat
 **Payment method** controls how data is uploaded to Arweave:
 
 - `turbo` (default) -- uploads via ArDrive Turbo bundler. Pay with SOL, ETH, MATIC, fiat, or any supported token. Delivery is guaranteed once the upload succeeds. Requires Turbo credits (see [Top up Turbo credits](#top-up-turbo-credits)).
-- `native` -- uploads L1 transactions directly to the Arweave network. Pay with AR tokens. Used for local development with arlocal.
+- `native` -- uploads L1 transactions directly to the Arweave network. Pay with AR tokens. Significantly more expensive for small pushes due to L1 minimum size granularity. Primarily used for developing git-remote-arweave itself with [arlocal](https://github.com/textury/arlocal).
 
 ```sh
 # Set wallet globally
