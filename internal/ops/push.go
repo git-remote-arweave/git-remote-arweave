@@ -159,8 +159,11 @@ func forcePush(
 	repoName string,
 	input *PushInput,
 ) (*PushResult, error) {
-	// Clear local state — start fresh.
+	// Clear local state — start fresh. Reset last-manifest so that
+	// checkConflict accepts whatever remote state exists after the
+	// force push replaces the manifest chain.
 	_ = state.ClearPending()
+	_ = state.SaveLastManifestTxID("")
 
 	// Collect tips (no bases — full pack).
 	var tips []plumbing.Hash
