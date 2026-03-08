@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,6 +161,12 @@ func (c *Client) Upload(ctx context.Context, data []byte, tags []manifest.Tag) (
 // and bundled data items (ANS-104), unlike goar's tx/{id}/data which
 // only works for L1 transactions.
 func (c *Client) Fetch(ctx context.Context, txID string) ([]byte, error) {
+	return withRetry(ctx, 3, func() ([]byte, error) {
+		return c.fetchOnce(ctx, txID)
+	})
+}
+
+func (c *Client) fetchOnce(ctx context.Context, txID string) ([]byte, error) {
 	fetchURL := c.fetchGateway + "/" + txID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
@@ -210,7 +217,9 @@ func (c *Client) QueryLatestManifest(ctx context.Context, owner, repoName string
 	var cursor string
 	for {
 		query := buildManifestPageQuery(owner, repoName, pageSize, cursor)
-		body, err := c.goarClient.GraphQL(query)
+		body, err := withRetry(ctx, 3, func() ([]byte, error) {
+			return c.goarClient.GraphQL(query)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("arweave: graphql failed: %w", err)
 		}
@@ -235,7 +244,9 @@ func (c *Client) QueryLatestManifest(ctx context.Context, owner, repoName string
 // RepoExists reports whether a repository identified by (owner, repoName) exists on Arweave.
 func (c *Client) RepoExists(ctx context.Context, owner, repoName string) (bool, error) {
 	query := buildRepoLookupQuery(owner, repoName)
-	body, err := c.goarClient.GraphQL(query)
+	body, err := withRetry(ctx, 3, func() ([]byte, error) {
+		return c.goarClient.GraphQL(query)
+	})
 	if err != nil {
 		return false, fmt.Errorf("arweave: graphql failed: %w", err)
 	}
@@ -421,6 +432,55 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 
 	h := best.head
 	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
+}
+
+// --- Retry logic for transient gateway errors ---
+
+// isTransientError checks whether an error or HTTP status indicates a
+// transient gateway problem (502, 503, 504) worth retrying.
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "502") ||
+		strings.Contains(s, "503") ||
+		strings.Contains(s, "504") ||
+		strings.Contains(s, "Bad Gateway") ||
+		strings.Contains(s, "Service Unavailable") ||
+		strings.Contains(s, "Gateway Timeout")
+}
+
+func isTransientStatus(code int) bool {
+	return code == 502 || code == 503 || code == 504
+}
+
+// withRetry retries fn up to maxRetries times with exponential backoff
+// when the returned error is transient. Respects context cancellation.
+func withRetry[T any](ctx context.Context, maxRetries int, fn func() (T, error)) (T, error) {
+	delay := 1 * time.Second
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		result, err := fn()
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if !isTransientError(err) || attempt == maxRetries {
+			return result, err
+		}
+		fmt.Fprintf(os.Stderr, "arweave: transient error, retrying in %v (%d/%d): %v\n",
+			delay, attempt+1, maxRetries, err)
+		select {
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err()
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+	var zero T
+	return zero, lastErr
 }
 
 func parseFirstTxID(body []byte) (string, error) {
