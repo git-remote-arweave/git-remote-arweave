@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -139,7 +140,17 @@ func (h *handler) cmdCapabilities() error {
 func (h *handler) cmdList() error {
 	rs, err := ops.LoadRemoteState(h.ctx, h.ar, h.owner, h.repoName)
 	if err != nil {
-		return err
+		var mfe *ops.ManifestFetchError
+		if errors.As(err, &mfe) {
+			// Manifest exists in GraphQL but body is unavailable (e.g.,
+			// bundled via devnet). Warn and report empty refs so that
+			// force push can overwrite the broken state.
+			fmt.Fprintf(os.Stderr, "arweave: warning: %v\n", err)
+			fmt.Fprintf(os.Stderr, "arweave: remote state unreadable; use git push --force to overwrite\n")
+			rs = &ops.RemoteState{}
+		} else {
+			return err
+		}
 	}
 	h.remoteState = rs
 	pending, _, _ := h.state.LoadPending()

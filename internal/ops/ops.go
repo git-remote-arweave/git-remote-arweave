@@ -29,6 +29,9 @@ type RemoteState struct {
 
 // LoadRemoteState queries and parses the latest manifest for (owner, repoName).
 // rs.m is nil when the repository has no manifests yet (new repo).
+// If the manifest exists in GraphQL but its body cannot be fetched (e.g.,
+// bundled via a devnet bundler whose data items are not indexed), the
+// error is returned so callers can decide how to handle it.
 func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName string) (*RemoteState, error) {
 	info, err := ar.QueryLatestManifest(ctx, owner, repoName)
 	if err != nil {
@@ -40,7 +43,7 @@ func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName st
 
 	data, err := ar.Fetch(ctx, info.TxID)
 	if err != nil {
-		return nil, fmt.Errorf("ops: fetch manifest body %q: %w", info.TxID, err)
+		return nil, &ManifestFetchError{TxID: info.TxID, Err: err}
 	}
 
 	m, err := manifest.Parse(data)
@@ -50,3 +53,17 @@ func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName st
 
 	return &RemoteState{manifestTxID: info.TxID, m: m}, nil
 }
+
+// ManifestFetchError indicates that a manifest was found via GraphQL
+// but its body could not be downloaded. This can happen when data items
+// are bundled by an untrusted bundler (e.g., Turbo devnet).
+type ManifestFetchError struct {
+	TxID string
+	Err  error
+}
+
+func (e *ManifestFetchError) Error() string {
+	return fmt.Sprintf("ops: fetch manifest body %q: %v", e.TxID, e.Err)
+}
+
+func (e *ManifestFetchError) Unwrap() error { return e.Err }
