@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"net/http"
 	"net/url"
 	"strings"
@@ -325,6 +326,7 @@ type gqlNode struct {
 	cursor    string
 	parentTx  string
 	isGenesis bool
+	timestamp int64 // unix epoch from Timestamp tag; 0 if absent
 }
 
 type manifestPage struct {
@@ -351,6 +353,8 @@ func parseManifestPage(body []byte) (*manifestPage, error) {
 				n.parentTx = tag.Value
 			case manifest.TagGenesis:
 				n.isGenesis = tag.Value == "true"
+			case manifest.TagTimestamp:
+				n.timestamp, _ = strconv.ParseInt(tag.Value, 10, 64)
 			}
 		}
 		page.nodes = append(page.nodes, n)
@@ -361,14 +365,8 @@ func parseManifestPage(body []byte) (*manifestPage, error) {
 // findChainHead finds the manifest that no other manifest references as
 // its Parent-Tx. When multiple heads exist (e.g., after force push creates
 // a new genesis while old chain still exists), we trace each head back to
-// its genesis and pick the head belonging to the newest genesis chain.
-//
-// "Newest genesis" is determined by position in the input slice: nodes are
-// ordered HEIGHT_DESC by GraphQL, but block height is unreliable for
-// ANS-104 items. However, within the set of genesis nodes specifically,
-// the most recently created genesis is very likely to appear first because
-// force pushes are rare and their settlement order relative to old chain
-// nodes doesn't matter — we just need to distinguish chains.
+// its genesis and pick the head belonging to the genesis with the highest
+// Timestamp tag.
 func findChainHead(nodes []gqlNode) *ManifestInfo {
 	byID := make(map[string]*gqlNode, len(nodes))
 	for i := range nodes {
@@ -400,46 +398,28 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 		return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
 	}
 
-	// Multiple heads — trace each to its genesis root.
-	// genesisOf returns the genesis node ID for a given head, or ""
-	// if the genesis is outside the fetched window.
-	genesisOf := func(head gqlNode) string {
-		cur := &head
+	// Multiple heads — trace each to its genesis and pick the one
+	// with the highest Timestamp. Old manifests without Timestamp
+	// have timestamp=0, so any tagged genesis wins automatically.
+	type candidate struct {
+		head    gqlNode
+		genesis *gqlNode
+	}
+	var best *candidate
+	for _, h := range heads {
+		cur := byID[h.id]
 		for cur != nil && !cur.isGenesis {
 			cur = byID[cur.parentTx]
 		}
-		if cur != nil {
-			return cur.id
-		}
-		return ""
-	}
-
-	// Find the newest genesis: first genesis in the nodes slice.
-	// (Nodes are HEIGHT_DESC; while imperfect, genesis ordering is
-	// reliable because force pushes are separated by significant time.)
-	var newestGenesis string
-	for _, n := range nodes {
-		if n.isGenesis {
-			newestGenesis = n.id
-			break
+		c := &candidate{head: h, genesis: cur}
+		if best == nil {
+			best = c
+		} else if c.genesis != nil && (best.genesis == nil || c.genesis.timestamp > best.genesis.timestamp) {
+			best = c
 		}
 	}
 
-	// Prefer the head that traces back to the newest genesis.
-	for _, h := range heads {
-		if genesisOf(h) == newestGenesis {
-			return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
-		}
-	}
-
-	// Fallback: if no head traces to the newest genesis (e.g., genesis
-	// outside the fetched window), prefer a genesis head, then first head.
-	for _, h := range heads {
-		if h.isGenesis {
-			return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
-		}
-	}
-	h := heads[0]
+	h := best.head
 	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
 }
 

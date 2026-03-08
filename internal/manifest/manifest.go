@@ -3,6 +3,8 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"time"
 )
 
 // Protocol constants — hardcoded, must not be user-configurable.
@@ -24,6 +26,7 @@ const (
 	TagGenesis         = "Genesis"
 	TagBase            = "Base"
 	TagTip             = "Tip"
+	TagTimestamp        = "Timestamp"
 )
 
 // Tag is a key-value pair for an Arweave transaction tag.
@@ -104,6 +107,7 @@ func RefsTags(repoName, parentTx string) []Tag {
 		{TagProtocolVersion, ProtocolVersion},
 		{TagType, TypeRefs},
 		{TagRepoName, repoName},
+		{TagTimestamp, strconv.FormatInt(time.Now().Unix(), 10)},
 	}
 	if parentTx == "" {
 		tags = append(tags, Tag{TagGenesis, "true"})

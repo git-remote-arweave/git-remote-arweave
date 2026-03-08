@@ -127,8 +127,9 @@ func TestCheckConflict_PendingMatchesRemote(t *testing.T) {
 		parentTxID: "manifest-1",
 	}
 	state := newTestState(t)
+	ctx := context.Background()
 
-	if err := checkConflict(rs, res, state); err != nil {
+	if _, err := checkConflict(ctx, nil, rs, res, state); err != nil {
 		t.Errorf("checkConflict with matching pending parent: %v", err)
 	}
 }
@@ -143,8 +144,9 @@ func TestCheckConflict_ReUploadedMatchesRemote(t *testing.T) {
 		parentTxID: "manifest-1",
 	}
 	state := newTestState(t)
+	ctx := context.Background()
 
-	if err := checkConflict(rs, res, state); err != nil {
+	if _, err := checkConflict(ctx, nil, rs, res, state); err != nil {
 		t.Errorf("checkConflict with re-uploaded matching parent: %v", err)
 	}
 }

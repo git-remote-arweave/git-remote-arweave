@@ -118,6 +118,33 @@ func TestParseManifestPage_found(t *testing.T) {
 	}
 }
 
+func TestParseManifestPage_timestamp(t *testing.T) {
+	body := []byte(`{
+		"transactions": {
+			"pageInfo": {"hasNextPage": false},
+			"edges": [{
+				"cursor": "c1",
+				"node": {
+					"id": "tx-ts",
+					"tags": [
+						{"name": "Timestamp", "value": "1709900000"},
+						{"name": "Genesis", "value": "true"}
+					]
+				}
+			}]
+		}
+	}`)
+
+	page, err := parseManifestPage(body)
+	if err != nil {
+		t.Fatalf("parseManifestPage: %v", err)
+	}
+	n := page.nodes[0]
+	if n.timestamp != 1709900000 {
+		t.Errorf("timestamp = %d, want 1709900000", n.timestamp)
+	}
+}
+
 func TestParseManifestPage_genesis(t *testing.T) {
 	body := []byte(`{
 		"transactions": {
@@ -189,15 +216,15 @@ func TestFindChainHead_SingleGenesis(t *testing.T) {
 // genesis-new should be selected because it's a genesis head.
 func TestFindChainHead_ForcePush(t *testing.T) {
 	nodes := []gqlNode{
-		// HEIGHT_DESC order — new genesis may appear anywhere
-		{id: "B", parentTx: "A"},                // old chain head
-		{id: "genesis-new", isGenesis: true},      // force push genesis
+		{id: "B", parentTx: "A"},
+		{id: "genesis-new", isGenesis: true, timestamp: 2000},
 		{id: "A", parentTx: "genesis-old"},
-		{id: "genesis-old", isGenesis: true},
+		{id: "genesis-old", isGenesis: true, timestamp: 1000},
 	}
 	info := findChainHead(nodes)
-	// Both B and genesis-new are heads (unreferenced as parent).
-	// genesis-new should win because it's a genesis.
+	// Both B and genesis-new are heads.
+	// genesis-new has higher timestamp → its chain wins.
+	// genesis-new is itself the head of its chain.
 	if info.TxID != "genesis-new" {
 		t.Errorf("expected genesis-new after force push, got %q", info.TxID)
 	}
@@ -207,16 +234,15 @@ func TestFindChainHead_ForcePush(t *testing.T) {
 // normal pushes: genesis-new → C → D. Old chain also exists.
 func TestFindChainHead_ForcePushWithChildren(t *testing.T) {
 	nodes := []gqlNode{
-		{id: "D", parentTx: "C"},                 // new chain head
-		{id: "C", parentTx: "genesis-new"},
-		{id: "B", parentTx: "A"},                  // old chain head
-		{id: "genesis-new", isGenesis: true},
+		{id: "D", parentTx: "C", timestamp: 3000},
+		{id: "C", parentTx: "genesis-new", timestamp: 2500},
+		{id: "B", parentTx: "A"},
+		{id: "genesis-new", isGenesis: true, timestamp: 2000},
 		{id: "A", parentTx: "genesis-old"},
-		{id: "genesis-old", isGenesis: true},
+		{id: "genesis-old", isGenesis: true, timestamp: 1000},
 	}
 	info := findChainHead(nodes)
-	// D and B are both heads. Neither is genesis.
-	// D appears first in HEIGHT_DESC → selected.
+	// D and B are both heads. D traces to genesis-new (higher timestamp).
 	if info.TxID != "D" {
 		t.Errorf("expected D, got %q", info.TxID)
 	}
@@ -224,23 +250,19 @@ func TestFindChainHead_ForcePushWithChildren(t *testing.T) {
 
 // TestFindChainHead_HeightMisordered tests the actual bug scenario:
 // GraphQL returns old manifest at higher block height than newer ones
-// due to ANS-104 settlement ordering.
+// due to ANS-104 settlement ordering. Timestamp disambiguates.
 func TestFindChainHead_HeightMisordered(t *testing.T) {
-	// HEIGHT_DESC puts old-chain-head first (higher block),
-	// but the chain walk should find the correct head by tracing
-	// to the newest genesis.
 	nodes := []gqlNode{
-		{id: "old-head", parentTx: "old-genesis"},   // block 1872021
-		{id: "new-child", parentTx: "new-genesis"},  // block 1872010
-		{id: "new-genesis", isGenesis: true},         // block 1872006
-		{id: "old-genesis", isGenesis: true},         // block 1872000
+		{id: "old-head", parentTx: "old-genesis"},                    // block 1872021
+		{id: "new-child", parentTx: "new-genesis", timestamp: 2000},  // block 1872010
+		{id: "new-genesis", isGenesis: true, timestamp: 1900},        // block 1872006
+		{id: "old-genesis", isGenesis: true, timestamp: 1000},        // block 1872000
 	}
 	info := findChainHead(nodes)
-	// Both old-head and new-child are heads.
-	// new-genesis appears first among genesis nodes → it's the "newest".
-	// new-child traces to new-genesis → it should be selected.
+	// new-genesis has higher timestamp → it's the newest genesis.
+	// new-child traces to new-genesis → selected.
 	if info.TxID != "new-child" {
-		t.Errorf("expected new-child (traces to newest genesis), got %q", info.TxID)
+		t.Errorf("expected new-child (traces to newest genesis by timestamp), got %q", info.TxID)
 	}
 }
 

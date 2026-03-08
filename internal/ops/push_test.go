@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -132,8 +133,9 @@ func TestCheckConflict_NewRepo(t *testing.T) {
 	rs := &RemoteState{} // no manifest
 	res := &pendingResolution{outcome: noPending}
 	state := newTestState(t)
+	ctx := context.Background()
 
-	if err := checkConflict(rs, res, state); err != nil {
+	if _, err := checkConflict(ctx, nil, rs, res, state); err != nil {
 		t.Errorf("checkConflict on new repo: %v", err)
 	}
 }
@@ -146,8 +148,9 @@ func TestCheckConflict_Matching(t *testing.T) {
 	res := &pendingResolution{outcome: noPending}
 	state := newTestState(t)
 	state.SaveLastManifestTxID("manifest-1")
+	ctx := context.Background()
 
-	if err := checkConflict(rs, res, state); err != nil {
+	if _, err := checkConflict(ctx, nil, rs, res, state); err != nil {
 		t.Errorf("checkConflict with matching parent: %v", err)
 	}
 }
@@ -160,8 +163,10 @@ func TestCheckConflict_Mismatch(t *testing.T) {
 	res := &pendingResolution{outcome: noPending}
 	state := newTestState(t)
 	state.SaveLastManifestTxID("manifest-1")
+	ctx := context.Background()
 
-	if err := checkConflict(rs, res, state); err == nil {
+	// ar is nil — resolveAheadOfGraphQL will fail to fetch, treating as conflict.
+	if _, err := checkConflict(ctx, nil, rs, res, state); err == nil {
 		t.Error("checkConflict should detect conflict when parents differ")
 	}
 }
@@ -173,9 +178,10 @@ func TestCheckConflict_NoLocalRecord(t *testing.T) {
 	}
 	res := &pendingResolution{outcome: noPending}
 	state := newTestState(t)
+	ctx := context.Background()
 
 	// No local record — should accept remote state (first push from this machine).
-	if err := checkConflict(rs, res, state); err != nil {
+	if _, err := checkConflict(ctx, nil, rs, res, state); err != nil {
 		t.Errorf("checkConflict with no local record: %v", err)
 	}
 }
@@ -190,8 +196,9 @@ func TestCheckConflict_PendingParentMismatch(t *testing.T) {
 		parentTxID: "manifest-1",
 	}
 	state := newTestState(t)
+	ctx := context.Background()
 
-	if err := checkConflict(rs, res, state); err == nil {
+	if _, err := checkConflict(ctx, nil, rs, res, state); err == nil {
 		t.Error("checkConflict should detect conflict when pending parent differs from remote")
 	}
 }
@@ -282,7 +289,8 @@ func TestForcePushResetsLastManifest(t *testing.T) {
 
 	// checkConflict should NOT return an error: last-manifest is empty,
 	// which is treated as "no local record — accept remote state".
-	if err := checkConflict(rs, res, state); err != nil {
+	ctx := context.Background()
+	if _, err := checkConflict(ctx, nil, rs, res, state); err != nil {
 		t.Errorf("checkConflict after force push should not conflict: %v", err)
 	}
 
@@ -326,7 +334,8 @@ func TestForcePushWithPendingInMempool(t *testing.T) {
 	// expected after force push. However, checkConflict currently checks
 	// res.parentTxID != rs.manifestTxID for pendingInMempool.
 	// This test documents the current behavior.
-	err := checkConflict(rs, res, state)
+	ctx := context.Background()
+	_, err := checkConflict(ctx, nil, rs, res, state)
 	if err == nil {
 		// If this passes, the force push pending-in-mempool case is handled.
 		return

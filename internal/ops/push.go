@@ -67,7 +67,11 @@ func Push(
 	}
 
 	// 3. Conflict detection: verify our known parent matches on-chain.
-	if err := checkConflict(rs, res, state); err != nil {
+	//    When our local state is ahead of GraphQL (previous push delivered
+	//    but not yet indexed), checkConflict returns an updated RemoteState
+	//    based on the local manifest fetched from the gateway.
+	rs, err = checkConflict(ctx, ar, rs, res, state)
+	if err != nil {
 		return nil, err
 	}
 
@@ -224,37 +228,90 @@ func forcePush(
 }
 
 // checkConflict verifies that the local parent expectation matches on-chain state.
-func checkConflict(rs *RemoteState, res *pendingResolution, state *localstate.State) error {
+// When the local last-manifest is ahead of GraphQL (our previous push is
+// delivered but not yet indexed), checkConflict fetches the manifest body
+// from the gateway and walks the parent chain to verify ancestry. If the
+// on-chain manifest is an ancestor of our local manifest, it returns the
+// local manifest as the effective remote state (no conflict).
+func checkConflict(
+	ctx context.Context,
+	ar *arweave.Client,
+	rs *RemoteState,
+	res *pendingResolution,
+	state *localstate.State,
+) (*RemoteState, error) {
 	// New repo — no conflict possible.
 	if rs.m == nil {
-		return nil
+		return rs, nil
 	}
 
-	// If we have a pending push in mempool, its parent should match on-chain.
-	// If confirmed, the on-chain state was just updated by us.
-	// If re-uploaded, the parent is the same as the original pending.
 	switch res.outcome {
 	case pendingConfirmed, noPending:
-		// Check that our locally recorded parent matches on-chain.
 		lastManifest, err := state.LoadLastManifestTxID()
 		if err != nil {
-			return fmt.Errorf("ops: load last manifest for conflict check: %w", err)
+			return nil, fmt.Errorf("ops: load last manifest for conflict check: %w", err)
 		}
-		// If we have no local record, we're likely fetching for the first time
-		// from this machine. Accept the remote state.
 		if lastManifest == "" {
-			return nil
+			return rs, nil
 		}
-		if lastManifest != rs.manifestTxID {
-			return fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q; run git fetch first", rs.manifestTxID, lastManifest)
+		if lastManifest == rs.manifestTxID {
+			return rs, nil
 		}
+		// Local is ahead of GraphQL — verify ancestry by fetching our
+		// last manifest from the gateway and checking its parent chain.
+		return resolveAheadOfGraphQL(ctx, ar, rs, lastManifest)
+
 	case pendingInMempool, pendingReUploaded:
-		// The pending push's parent should match the on-chain manifest.
 		if res.parentTxID != rs.manifestTxID {
-			return fmt.Errorf("ops: conflict detected — remote manifest %q differs from pending parent %q", rs.manifestTxID, res.parentTxID)
+			return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from pending parent %q", rs.manifestTxID, res.parentTxID)
 		}
 	}
-	return nil
+	return rs, nil
+}
+
+// resolveAheadOfGraphQL handles the case where our local last-manifest is
+// not yet visible in GraphQL. It fetches the manifest from the gateway
+// and walks the parent chain to verify that the on-chain manifest (from
+// GraphQL) is an ancestor. If so, returns the local manifest as effective
+// remote state so the new push chains from it correctly.
+func resolveAheadOfGraphQL(
+	ctx context.Context,
+	ar *arweave.Client,
+	rs *RemoteState,
+	lastManifest string,
+) (*RemoteState, error) {
+	if ar == nil {
+		return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q; run git fetch first", rs.manifestTxID, lastManifest)
+	}
+
+	// Walk from lastManifest toward rs.manifestTxID via parent links.
+	cur := lastManifest
+	var latestM *manifest.Manifest
+	for i := 0; i < 10; i++ { // bound the walk to avoid infinite loops
+		data, err := ar.Fetch(ctx, cur)
+		if err != nil {
+			// Can't fetch — treat as real conflict.
+			return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q (fetch failed: %v)", rs.manifestTxID, lastManifest, err)
+		}
+		m, err := manifest.Parse(data)
+		if err != nil {
+			return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q (parse failed: %v)", rs.manifestTxID, lastManifest, err)
+		}
+		if i == 0 {
+			latestM = m
+		}
+		if cur == rs.manifestTxID || m.Parent == rs.manifestTxID {
+			// On-chain manifest is an ancestor — no conflict.
+			// Use our latest manifest as effective remote state.
+			return &RemoteState{manifestTxID: lastManifest, m: latestM}, nil
+		}
+		if m.Parent == "" {
+			break // reached genesis without finding rs.manifestTxID
+		}
+		cur = m.Parent
+	}
+
+	return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q; run git fetch first", rs.manifestTxID, lastManifest)
 }
 
 // effectiveState returns the refs and packs to use as a base for the new manifest.
