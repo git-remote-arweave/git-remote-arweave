@@ -137,15 +137,18 @@ func buildAndUploadKeyMap(
 	}
 
 	// Add readers that have a stored public key.
+	// Keys are indexed by the reader's RSA modulus (base64url), which is
+	// what goar's wallet.Owner() returns — the value the reader will use
+	// to look up their wrapped key when cloning.
 	for _, r := range readers {
-		if r.PubKey == "" || r.Address == ownerAddress {
+		if r.PubKey == "" || r.PubKey == ownerAddress {
 			continue
 		}
 		pub, err := rsaPubKeyFromModulus(r.PubKey)
 		if err != nil {
 			return "", fmt.Errorf("ops: parse pubkey for reader %s: %w", r.Address, err)
 		}
-		pubKeys[r.Address] = pub
+		pubKeys[r.PubKey] = pub
 	}
 
 	km := crypto.NewKeyMap()
@@ -183,6 +186,49 @@ func buildAndUploadKeyMap(
 	}
 
 	return txID, nil
+}
+
+// buildOpenKeyMap creates an open keymap from local encryption state.
+// Returns nil if there is no encryption state (repo was never private).
+func buildOpenKeyMap(state *localstate.State) (*crypto.KeyMap, error) {
+	es, err := state.LoadEncryption()
+	if err != nil {
+		return nil, err
+	}
+	if es == nil {
+		return nil, nil
+	}
+
+	km := crypto.NewKeyMap()
+	km.Open = true
+	for epochStr, keyB64 := range es.EpochKeys {
+		epoch, err := strconv.Atoi(epochStr)
+		if err != nil {
+			continue
+		}
+		keyBytes, err := base64.RawURLEncoding.DecodeString(keyB64)
+		if err != nil {
+			return nil, fmt.Errorf("ops: decode epoch %d key: %w", epoch, err)
+		}
+		var key [crypto.KeySize]byte
+		copy(key[:], keyBytes)
+		km.SetEpochKeyOpen(epoch, &key)
+	}
+	return km, nil
+}
+
+// uploadOpenKeyMap marshals and uploads an open keymap transaction.
+func uploadOpenKeyMap(
+	ctx context.Context,
+	uploader arweave.Uploader,
+	km *crypto.KeyMap,
+	repoName string,
+) (string, error) {
+	data, err := km.Marshal()
+	if err != nil {
+		return "", fmt.Errorf("ops: marshal open keymap: %w", err)
+	}
+	return uploader.Upload(ctx, data, manifest.KeyMapTags(repoName))
 }
 
 // encryptData encrypts data with the encryption context's current key.

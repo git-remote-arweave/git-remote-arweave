@@ -40,6 +40,7 @@ type ManifestInfo struct {
 	ParentTx  string // from Parent-Tx tag, used for conflict detection
 	IsGenesis bool
 	KeyMapTx  string // from Key-Map tag, non-empty for private repos
+	Encrypted bool   // from Encrypted tag, true if manifest body is encrypted
 }
 
 // Uploader abstracts data upload to Arweave (L1 or via Turbo bundler).
@@ -357,6 +358,7 @@ type gqlNode struct {
 	isGenesis bool
 	timestamp int64  // unix epoch from Timestamp tag; 0 if absent
 	keymapTx  string // from Key-Map tag; non-empty for private repos
+	encrypted bool   // from Encrypted tag
 }
 
 type manifestPage struct {
@@ -387,6 +389,8 @@ func parseManifestPage(body []byte) (*manifestPage, error) {
 				n.timestamp, _ = strconv.ParseInt(tag.Value, 10, 64)
 			case manifest.TagKeyMap:
 				n.keymapTx = tag.Value
+			case manifest.TagEncrypted:
+				n.encrypted = tag.Value == "true"
 			}
 		}
 		page.nodes = append(page.nodes, n)
@@ -427,7 +431,7 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 
 	if len(heads) == 1 {
 		h := heads[0]
-		return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx}
+		return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx, Encrypted: h.encrypted}
 	}
 
 	// Multiple heads — trace each to its genesis and pick the one
@@ -452,7 +456,7 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 	}
 
 	h := best.head
-	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx}
+	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx, Encrypted: h.encrypted}
 }
 
 // --- Retry logic for transient gateway errors ---

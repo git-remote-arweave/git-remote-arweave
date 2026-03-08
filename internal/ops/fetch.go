@@ -44,10 +44,9 @@ func Fetch(
 		return &FetchResult{Refs: map[string]string{}}, nil
 	}
 
-	// Load keymap if this is a private repo.
+	// Load keymap if this repo has encrypted packs.
 	var km *crypto.KeyMap
-	isPrivate := rs.m.KeyMap != ""
-	if isPrivate {
+	if rs.m.KeyMap != "" {
 		kmData, err := ar.Fetch(ctx, rs.m.KeyMap)
 		if err != nil {
 			return nil, fmt.Errorf("ops: fetch keymap %q: %w", rs.m.KeyMap, err)
@@ -74,8 +73,8 @@ func Fetch(
 			return nil, fmt.Errorf("ops: fetch pack %q: %w", pe.TX, err)
 		}
 
-		// Decrypt if private repo.
-		if isPrivate {
+		// Decrypt only packs explicitly marked as encrypted.
+		if pe.Encrypted && km != nil {
 			data, err = decryptPack(data, pe.Epoch, ar.Owner(), ar.RSAPrivateKey(), km)
 			if err != nil {
 				return nil, fmt.Errorf("ops: decrypt pack %q: %w", pe.TX, err)

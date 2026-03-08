@@ -32,6 +32,7 @@ const (
 	TagTimestamp   = "Timestamp"
 	TagVisibility  = "Visibility"
 	TagKeyMap      = "Key-Map"
+	TagEncrypted   = "Encrypted"
 )
 
 // Tag is a key-value pair for an Arweave transaction tag.
@@ -42,11 +43,12 @@ type Tag struct {
 
 // PackEntry describes a single pack transaction referenced by a manifest.
 type PackEntry struct {
-	TX    string `json:"tx"`
-	Base  string `json:"base"`
-	Tip   string `json:"tip"`
-	Size  int64  `json:"size"`
-	Epoch int    `json:"epoch,omitempty"` // encryption epoch (private repos only)
+	TX        string `json:"tx"`
+	Base      string `json:"base"`
+	Tip       string `json:"tip"`
+	Size      int64  `json:"size"`
+	Epoch     int    `json:"epoch,omitempty"`     // encryption epoch (private repos only)
+	Encrypted bool   `json:"encrypted,omitempty"` // true if pack data is encrypted
 }
 
 // Manifest is the JSON body of a ref manifest transaction.
@@ -109,7 +111,7 @@ func Parse(data []byte) (*Manifest, error) {
 
 // RefsTags returns the Arweave transaction tags for a ref manifest transaction.
 // For private repos, pass visibility = VisibilityPrivate and keymapTx = keymap tx-id.
-func RefsTags(repoName, parentTx, visibility, keymapTx string) []Tag {
+func RefsTags(repoName, parentTx, visibility, keymapTx string, encrypted bool) []Tag {
 	tags := []Tag{
 		{TagAppName, AppName},
 		{TagProtocolVersion, ProtocolVersion},
@@ -128,6 +130,9 @@ func RefsTags(repoName, parentTx, visibility, keymapTx string) []Tag {
 	if keymapTx != "" {
 		tags = append(tags, Tag{TagKeyMap, keymapTx})
 	}
+	if encrypted {
+		tags = append(tags, Tag{TagEncrypted, "true"})
+	}
 	return tags
 }
 
@@ -138,9 +143,11 @@ func PackTags(repoName, base, tip, visibility string) []Tag {
 		{TagProtocolVersion, ProtocolVersion},
 		{TagType, TypePack},
 		{TagRepoName, repoName},
-		{TagBase, base},
-		{TagTip, tip},
 	}
+	if base != "" {
+		tags = append(tags, Tag{TagBase, base})
+	}
+	tags = append(tags, Tag{TagTip, tip})
 	if visibility == VisibilityPrivate {
 		tags = append(tags, Tag{TagVisibility, VisibilityPrivate})
 	}

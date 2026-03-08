@@ -10,5 +10,8 @@
 # arweave wallet keyfile — never commit private keys
 *.json
 
+# arlocal logs
+internal/integration/logs
+
 # OS
 .DS_Store

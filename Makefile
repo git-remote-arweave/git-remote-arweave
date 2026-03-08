@@ -3,7 +3,7 @@ CLI     = arweave-git
 VERSION = $(shell git describe --tags --always --dirty)
 LDFLAGS = -X main.version=$(VERSION)
 
-.PHONY: build install test clean
+.PHONY: build install test lint test-integration test-all clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/git-remote-arweave/
@@ -15,6 +15,14 @@ install: build
 
 test:
 	go test ./...
+
+lint:
+	golangci-lint run ./...
+
+test-integration:
+	INTEGRATION=1 go test -v -timeout 120s ./internal/integration/
+
+test-all: test test-integration
 
 clean:
 	rm -f $(BINARY) $(CLI)

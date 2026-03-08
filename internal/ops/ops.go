@@ -47,8 +47,8 @@ func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName st
 		return nil, &ManifestFetchError{TxID: info.TxID, Err: err}
 	}
 
-	// Decrypt manifest body if this is a private repo.
-	if info.KeyMapTx != "" {
+	// Decrypt manifest body if it was encrypted (private repo push).
+	if info.Encrypted {
 		kmData, err := ar.Fetch(ctx, info.KeyMapTx)
 		if err != nil {
 			return nil, fmt.Errorf("ops: fetch keymap %q: %w", info.KeyMapTx, err)

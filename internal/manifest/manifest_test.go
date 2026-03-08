@@ -95,19 +95,21 @@ func TestParseRejectsUnknownVersion(t *testing.T) {
 }
 
 func TestRefsTags(t *testing.T) {
-	tags := RefsTags("my-repo", "", "", "")
+	tags := RefsTags("my-repo", "", "", "", false)
 	assertTag(t, tags, TagGenesis, "true")
 	assertNoTag(t, tags, TagParentTx)
 	assertNoTag(t, tags, TagVisibility)
 	assertNoTag(t, tags, TagKeyMap)
+	assertNoTag(t, tags, TagEncrypted)
 
-	tags = RefsTags("my-repo", "parent-tx", "", "")
+	tags = RefsTags("my-repo", "parent-tx", "", "", false)
 	assertTag(t, tags, TagParentTx, "parent-tx")
 	assertNoTag(t, tags, TagGenesis)
 
-	tags = RefsTags("my-repo", "", VisibilityPrivate, "km-tx-123")
+	tags = RefsTags("my-repo", "", VisibilityPrivate, "km-tx-123", true)
 	assertTag(t, tags, TagVisibility, VisibilityPrivate)
 	assertTag(t, tags, TagKeyMap, "km-tx-123")
+	assertTag(t, tags, TagEncrypted, "true")
 }
 
 func TestPackTags(t *testing.T) {

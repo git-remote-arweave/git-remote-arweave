@@ -112,6 +112,21 @@ func Push(
 		}
 	}
 
+	// 7b. Private→public conversion: upload open keymap so historical
+	// encrypted packs remain accessible to anyone.
+	if !cfg.IsPrivate() {
+		openKM, err := buildOpenKeyMap(state)
+		if err != nil {
+			return nil, fmt.Errorf("ops: build open keymap: %w", err)
+		}
+		if openKM != nil {
+			keymapTx, err = uploadOpenKeyMap(ctx, uploader, openKM, repoName)
+			if err != nil {
+				return nil, fmt.Errorf("ops: upload open keymap: %w", err)
+			}
+		}
+	}
+
 	// 8. Upload pack.
 	baseSHA, tipSHA := tips[0].String(), tips[len(tips)-1].String()
 	if len(bases) > 0 {
@@ -137,11 +152,12 @@ func Push(
 	// 9. Build and upload manifest.
 	parentTx := effectiveParentTx(rs, res)
 	allPacks := append(effectivePacks, manifest.PackEntry{
-		TX:    packTxID,
-		Base:  baseSHA,
-		Tip:   tipSHA,
-		Size:  int64(len(packData)),
-		Epoch: epoch,
+		TX:        packTxID,
+		Base:      baseSHA,
+		Tip:       tipSHA,
+		Size:      int64(len(packData)),
+		Epoch:     epoch,
+		Encrypted: ec != nil,
 	})
 
 	var m *manifest.Manifest
@@ -168,7 +184,7 @@ func Push(
 		}
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, visibility, keymapTx))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, visibility, keymapTx, ec != nil))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -246,7 +262,7 @@ func forcePush(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, "", "", ""))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, "", "", "", false))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -472,7 +488,7 @@ func uploadManifestOnly(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, "", ""))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, "", "", false))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
