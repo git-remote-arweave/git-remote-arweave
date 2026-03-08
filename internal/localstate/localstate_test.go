@@ -41,7 +41,7 @@ func TestAppliedPacksPersisted(t *testing.T) {
 	dir := t.TempDir()
 
 	s1, _ := New(dir)
-	s1.MarkApplied("tx-a", "tx-b")
+	_ = s1.MarkApplied("tx-a", "tx-b")
 
 	// reload from same dir
 	s2, _ := New(dir)
@@ -53,7 +53,7 @@ func TestAppliedPacksPersisted(t *testing.T) {
 
 func TestAppliedSetIncludes(t *testing.T) {
 	s := newTestState(t)
-	s.MarkApplied("tx1", "tx2", "tx3")
+	_ = s.MarkApplied("tx1", "tx2", "tx3")
 
 	set, err := s.AppliedSet()
 	if err != nil {
@@ -123,7 +123,7 @@ func TestPendingNone(t *testing.T) {
 
 func TestClearPending(t *testing.T) {
 	s := newTestState(t)
-	s.SavePending(&PendingState{PackTxID: "tx1", ManifestTxID: "tx2", UploadedAt: time.Now()}, []byte("pack"))
+	_ = s.SavePending(&PendingState{PackTxID: "tx1", ManifestTxID: "tx2", UploadedAt: time.Now()}, []byte("pack"))
 
 	if err := s.ClearPending(); err != nil {
 		t.Fatalf("ClearPending: %v", err)

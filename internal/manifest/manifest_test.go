@@ -73,10 +73,14 @@ func TestExtensionsPreserved(t *testing.T) {
 	// re-marshal and check key is still there
 	data, _ := m.Marshal()
 	var out map[string]json.RawMessage
-	json.Unmarshal(data, &out)
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal re-marshalled data: %v", err)
+	}
 	ext := out["extensions"]
 	var extMap map[string]json.RawMessage
-	json.Unmarshal(ext, &extMap)
+	if err := json.Unmarshal(ext, &extMap); err != nil {
+		t.Fatalf("unmarshal extensions: %v", err)
+	}
 	if _, ok := extMap["ao_process"]; !ok {
 		t.Error("unknown extension key lost after re-marshal")
 	}

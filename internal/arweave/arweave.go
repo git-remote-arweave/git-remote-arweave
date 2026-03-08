@@ -451,10 +451,6 @@ func isTransientError(err error) bool {
 		strings.Contains(s, "Gateway Timeout")
 }
 
-func isTransientStatus(code int) bool {
-	return code == 502 || code == 503 || code == 504
-}
-
 // withRetry retries fn up to maxRetries times with exponential backoff
 // when the returned error is transient. Respects context cancellation.
 func withRetry[T any](ctx context.Context, maxRetries int, fn func() (T, error)) (T, error) {

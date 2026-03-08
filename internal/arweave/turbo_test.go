@@ -43,7 +43,7 @@ func TestTurboUploader_Upload(t *testing.T) {
 		receivedContentType = r.Header.Get("Content-Type")
 		receivedBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"id": "turbo-item-id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "turbo-item-id"})
 	}))
 	defer server.Close()
 
@@ -73,7 +73,7 @@ func TestTurboUploader_Upload(t *testing.T) {
 func TestTurboUploader_Upload_FallbackID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer server.Close()
 
@@ -91,7 +91,7 @@ func TestTurboUploader_Upload_FallbackID(t *testing.T) {
 func TestTurboUploader_Upload_ErrorStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte("insufficient credits"))
+		_, _ = w.Write([]byte("insufficient credits"))
 	}))
 	defer server.Close()
 
@@ -109,7 +109,7 @@ func TestTurboUploader_GetPriceForBytes(t *testing.T) {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"winc":"500000000","adjustments":[]}`))
+		_, _ = w.Write([]byte(`{"winc":"500000000","adjustments":[]}`))
 	}))
 	defer server.Close()
 
@@ -137,7 +137,7 @@ func TestTurboUploader_GetBalance(t *testing.T) {
 			t.Errorf("address = %q, want test-addr", addr)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"winc":"1000000000000"}`))
+		_, _ = w.Write([]byte(`{"winc":"1000000000000"}`))
 	}))
 	defer server.Close()
 
@@ -158,7 +158,7 @@ func TestTurboUploader_GetBalance(t *testing.T) {
 func TestTurboUploader_GetBalance_NotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("User Not Found"))
+		_, _ = w.Write([]byte("User Not Found"))
 	}))
 	defer server.Close()
 

@@ -147,7 +147,7 @@ func TestCheckConflict_Matching(t *testing.T) {
 	}
 	res := &pendingResolution{outcome: noPending}
 	state := newTestState(t)
-	state.SaveLastManifestTxID("manifest-1")
+	_ = state.SaveLastManifestTxID("manifest-1")
 	ctx := context.Background()
 
 	if _, err := checkConflict(ctx, nil, rs, res, state); err != nil {
@@ -162,7 +162,7 @@ func TestCheckConflict_Mismatch(t *testing.T) {
 	}
 	res := &pendingResolution{outcome: noPending}
 	state := newTestState(t)
-	state.SaveLastManifestTxID("manifest-1")
+	_ = state.SaveLastManifestTxID("manifest-1")
 	ctx := context.Background()
 
 	// ar is nil — resolveAheadOfGraphQL will fail to fetch, treating as conflict.
@@ -349,7 +349,7 @@ func TestForcePushWithPendingInMempool(t *testing.T) {
 func newTestState(t *testing.T) *localstate.State {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), ".git")
-	os.MkdirAll(dir, 0o700)
+	_ = os.MkdirAll(dir, 0o700)
 	s, err := localstate.New(dir)
 	if err != nil {
 		t.Fatalf("localstate.New: %v", err)

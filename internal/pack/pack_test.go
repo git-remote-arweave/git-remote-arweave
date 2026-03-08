@@ -37,7 +37,7 @@ func makeRepo(t *testing.T, n int) (*git.Repository, []plumbing.Hash) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		f.Write([]byte{byte(i)})
+		_, _ = f.Write([]byte{byte(i)})
 		f.Close()
 
 		if _, err := w.Add("file.txt"); err != nil {
