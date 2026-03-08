@@ -469,8 +469,8 @@ func withRetry[T any](ctx context.Context, maxRetries int, fn func() (T, error))
 		if !isTransientError(err) || attempt == maxRetries {
 			return result, err
 		}
-		fmt.Fprintf(os.Stderr, "arweave: transient error, retrying in %v (%d/%d): %v\n",
-			delay, attempt+1, maxRetries, err)
+		fmt.Fprintf(os.Stderr, "arweave: gateway error, retry %d/%d in %v\n",
+			attempt+1, maxRetries, delay)
 		select {
 		case <-ctx.Done():
 			var zero T
