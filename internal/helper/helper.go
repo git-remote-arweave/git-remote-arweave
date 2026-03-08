@@ -292,7 +292,7 @@ func (h *handler) resolveRef(src string) (string, error) {
 	return ref.Hash().String(), nil
 }
 
-// reportCost prints upload cost and remaining balance to stderr
+// reportCost prints estimated upload cost and remaining balance to stderr
 // if the uploader supports cost reporting (e.g., Turbo).
 func (h *handler) reportCost(result *ops.PushResult) {
 	cr, ok := h.uploader.(arweave.CostReporter)
@@ -302,7 +302,7 @@ func (h *handler) reportCost(result *ops.PushResult) {
 
 	cost, err := cr.GetPriceForBytes(h.ctx, result.BytesUploaded)
 	if err == nil && cost > 0 {
-		fmt.Fprintf(os.Stderr, "arweave: cost %.6f credits (%d bytes)\n", wincToCredits(cost), result.BytesUploaded)
+		fmt.Fprintf(os.Stderr, "arweave: estimated cost %.6f credits (%d bytes)\n", wincToCredits(cost), result.BytesUploaded)
 	}
 
 	balance, err := cr.GetBalance(h.ctx, h.owner)
