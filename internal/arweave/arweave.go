@@ -195,15 +195,40 @@ func (c *Client) TxStatus(ctx context.Context, txID string) (Status, error) {
 	return StatusPending, nil
 }
 
-// QueryLatestManifest finds the most recent confirmed ref manifest for (owner, repoName).
+// QueryLatestManifest finds the most recent ref manifest for (owner, repoName)
+// by walking the Parent-Tx chain. GraphQL's HEIGHT_DESC sort is unreliable for
+// ANS-104 data items (Turbo) because block height does not reflect creation order.
+// Instead, we fetch manifests in pages, build a parent→child graph from tags,
+// and return the chain head (the manifest no other manifest references as parent).
 // Returns nil, nil if no manifest exists (new repository).
 func (c *Client) QueryLatestManifest(ctx context.Context, owner, repoName string) (*ManifestInfo, error) {
-	query := buildLatestManifestQuery(owner, repoName)
-	body, err := c.goarClient.GraphQL(query)
-	if err != nil {
-		return nil, fmt.Errorf("arweave: graphql failed: %w", err)
+	const pageSize = 50
+
+	// Collect all manifest nodes across pages.
+	var all []gqlNode
+	var cursor string
+	for {
+		query := buildManifestPageQuery(owner, repoName, pageSize, cursor)
+		body, err := c.goarClient.GraphQL(query)
+		if err != nil {
+			return nil, fmt.Errorf("arweave: graphql failed: %w", err)
+		}
+		page, err := parseManifestPage(body)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.nodes...)
+		if !page.hasNextPage || len(page.nodes) == 0 {
+			break
+		}
+		cursor = page.nodes[len(page.nodes)-1].cursor
 	}
-	return parseManifestQueryResult(body)
+
+	if len(all) == 0 {
+		return nil, nil
+	}
+
+	return findChainHead(all), nil
 }
 
 // RepoExists reports whether a repository identified by (owner, repoName) exists on Arweave.
@@ -219,7 +244,11 @@ func (c *Client) RepoExists(ctx context.Context, owner, repoName string) (bool, 
 
 // --- GraphQL query builders ---
 
-func buildLatestManifestQuery(owner, repoName string) string {
+func buildManifestPageQuery(owner, repoName string, first int, after string) string {
+	afterClause := ""
+	if after != "" {
+		afterClause = fmt.Sprintf("\n    after: %q", after)
+	}
 	return fmt.Sprintf(`{
   transactions(
     owners: [%q]
@@ -229,10 +258,11 @@ func buildLatestManifestQuery(owner, repoName string) string {
       { name: %q, values: [%q] }
       { name: %q, values: [%q] }
     ]
-    first: 1
+    first: %d%s
     sort: HEIGHT_DESC
   ) {
-    edges { node { id tags { name value } } }
+    pageInfo { hasNextPage }
+    edges { cursor node { id tags { name value } } }
   }
 }`,
 		owner,
@@ -240,6 +270,7 @@ func buildLatestManifestQuery(owner, repoName string) string {
 		manifest.TagProtocolVersion, manifest.ProtocolVersion,
 		manifest.TagType, manifest.TypeRefs,
 		manifest.TagRepoName, repoName,
+		first, afterClause,
 	)
 }
 
@@ -272,8 +303,12 @@ func buildRepoLookupQuery(owner, repoName string) string {
 
 type gqlResponse struct {
 	Transactions struct {
+		PageInfo struct {
+			HasNextPage bool `json:"hasNextPage"`
+		} `json:"pageInfo"`
 		Edges []struct {
-			Node struct {
+			Cursor string `json:"cursor"`
+			Node   struct {
 				ID   string `json:"id"`
 				Tags []struct {
 					Name  string `json:"name"`
@@ -284,25 +319,128 @@ type gqlResponse struct {
 	} `json:"transactions"`
 }
 
-func parseManifestQueryResult(body []byte) (*ManifestInfo, error) {
+// gqlNode is an intermediate representation of a manifest from GraphQL.
+type gqlNode struct {
+	id        string
+	cursor    string
+	parentTx  string
+	isGenesis bool
+}
+
+type manifestPage struct {
+	nodes       []gqlNode
+	hasNextPage bool
+}
+
+func parseManifestPage(body []byte) (*manifestPage, error) {
 	var resp gqlResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("arweave: parse graphql response: %w", err)
 	}
-	if len(resp.Transactions.Edges) == 0 {
-		return nil, nil
+	page := &manifestPage{
+		hasNextPage: resp.Transactions.PageInfo.HasNextPage,
 	}
-	node := resp.Transactions.Edges[0].Node
-	info := &ManifestInfo{TxID: node.ID}
-	for _, tag := range node.Tags {
-		switch tag.Name {
-		case manifest.TagParentTx:
-			info.ParentTx = tag.Value
-		case manifest.TagGenesis:
-			info.IsGenesis = tag.Value == "true"
+	for _, edge := range resp.Transactions.Edges {
+		n := gqlNode{
+			id:     edge.Node.ID,
+			cursor: edge.Cursor,
+		}
+		for _, tag := range edge.Node.Tags {
+			switch tag.Name {
+			case manifest.TagParentTx:
+				n.parentTx = tag.Value
+			case manifest.TagGenesis:
+				n.isGenesis = tag.Value == "true"
+			}
+		}
+		page.nodes = append(page.nodes, n)
+	}
+	return page, nil
+}
+
+// findChainHead finds the manifest that no other manifest references as
+// its Parent-Tx. When multiple heads exist (e.g., after force push creates
+// a new genesis while old chain still exists), we trace each head back to
+// its genesis and pick the head belonging to the newest genesis chain.
+//
+// "Newest genesis" is determined by position in the input slice: nodes are
+// ordered HEIGHT_DESC by GraphQL, but block height is unreliable for
+// ANS-104 items. However, within the set of genesis nodes specifically,
+// the most recently created genesis is very likely to appear first because
+// force pushes are rare and their settlement order relative to old chain
+// nodes doesn't matter — we just need to distinguish chains.
+func findChainHead(nodes []gqlNode) *ManifestInfo {
+	byID := make(map[string]*gqlNode, len(nodes))
+	for i := range nodes {
+		byID[nodes[i].id] = &nodes[i]
+	}
+
+	// Build set of all IDs that are referenced as a parent.
+	isParent := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		if n.parentTx != "" {
+			isParent[n.parentTx] = true
 		}
 	}
-	return info, nil
+
+	// Find heads: nodes whose ID is not in isParent.
+	var heads []gqlNode
+	for _, n := range nodes {
+		if !isParent[n.id] {
+			heads = append(heads, n)
+		}
+	}
+
+	if len(heads) == 0 {
+		heads = nodes[:1]
+	}
+
+	if len(heads) == 1 {
+		h := heads[0]
+		return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
+	}
+
+	// Multiple heads — trace each to its genesis root.
+	// genesisOf returns the genesis node ID for a given head, or ""
+	// if the genesis is outside the fetched window.
+	genesisOf := func(head gqlNode) string {
+		cur := &head
+		for cur != nil && !cur.isGenesis {
+			cur = byID[cur.parentTx]
+		}
+		if cur != nil {
+			return cur.id
+		}
+		return ""
+	}
+
+	// Find the newest genesis: first genesis in the nodes slice.
+	// (Nodes are HEIGHT_DESC; while imperfect, genesis ordering is
+	// reliable because force pushes are separated by significant time.)
+	var newestGenesis string
+	for _, n := range nodes {
+		if n.isGenesis {
+			newestGenesis = n.id
+			break
+		}
+	}
+
+	// Prefer the head that traces back to the newest genesis.
+	for _, h := range heads {
+		if genesisOf(h) == newestGenesis {
+			return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
+		}
+	}
+
+	// Fallback: if no head traces to the newest genesis (e.g., genesis
+	// outside the fetched window), prefer a genesis head, then first head.
+	for _, h := range heads {
+		if h.isGenesis {
+			return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
+		}
+	}
+	h := heads[0]
+	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
 }
 
 func parseFirstTxID(body []byte) (string, error) {
