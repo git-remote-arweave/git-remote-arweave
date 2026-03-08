@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"git-remote-arweave/internal/arweave"
+	"git-remote-arweave/internal/crypto"
 	"git-remote-arweave/internal/manifest"
 )
 
@@ -44,6 +45,28 @@ func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName st
 	data, err := ar.Fetch(ctx, info.TxID)
 	if err != nil {
 		return nil, &ManifestFetchError{TxID: info.TxID, Err: err}
+	}
+
+	// Decrypt manifest body if this is a private repo.
+	if info.KeyMapTx != "" {
+		kmData, err := ar.Fetch(ctx, info.KeyMapTx)
+		if err != nil {
+			return nil, fmt.Errorf("ops: fetch keymap %q: %w", info.KeyMapTx, err)
+		}
+		km, err := crypto.ParseKeyMap(kmData)
+		if err != nil {
+			return nil, fmt.Errorf("ops: parse keymap: %w", err)
+		}
+		// Use the latest epoch key to decrypt the manifest body.
+		epoch := km.LatestEpoch()
+		key, err := km.GetKey(epoch, ar.Owner(), ar.RSAPrivateKey())
+		if err != nil {
+			return nil, fmt.Errorf("ops: unwrap manifest key: %w", err)
+		}
+		data, err = crypto.Open(data, &key)
+		if err != nil {
+			return nil, fmt.Errorf("ops: decrypt manifest %q: %w", info.TxID, err)
+		}
 	}
 
 	m, err := manifest.Parse(data)

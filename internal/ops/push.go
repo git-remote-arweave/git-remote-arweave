@@ -94,23 +94,54 @@ func Push(
 		return nil, fmt.Errorf("ops: generate pack: %w", err)
 	}
 
+	// 7a. Encryption (private repos).
+	var ec *encryptionContext
+	visibility := ""
+	keymapTx := ""
+	epoch := 0
+	if cfg.IsPrivate() {
+		visibility = manifest.VisibilityPrivate
+		ec, err = initEncryption(state)
+		if err != nil {
+			return nil, fmt.Errorf("ops: init encryption: %w", err)
+		}
+		epoch = ec.epoch
+		packData, err = ec.encryptData(packData)
+		if err != nil {
+			return nil, fmt.Errorf("ops: encrypt pack: %w", err)
+		}
+	}
+
 	// 8. Upload pack.
 	baseSHA, tipSHA := tips[0].String(), tips[len(tips)-1].String()
 	if len(bases) > 0 {
 		baseSHA = bases[0].String()
 	}
-	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, baseSHA, tipSHA))
+	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, baseSHA, tipSHA, visibility))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload pack: %w", err)
+	}
+
+	// 8a. Upload keymap if needed (private repos).
+	if ec != nil {
+		if ec.changed {
+			keymapTx, err = buildAndUploadKeyMap(ctx, uploader, state, repoName, ar.Owner(), ar.RSAPublicKey())
+			if err != nil {
+				return nil, fmt.Errorf("ops: upload keymap: %w", err)
+			}
+		} else {
+			keymapTx = ec.keymapTx
+		}
 	}
 
 	// 9. Build and upload manifest.
 	parentTx := effectiveParentTx(rs, res)
 	allPacks := append(effectivePacks, manifest.PackEntry{
-		TX:   packTxID,
-		Base: baseSHA,
-		Tip:  tipSHA,
-		Size: int64(len(packData)),
+		TX:    packTxID,
+		Base:  baseSHA,
+		Tip:   tipSHA,
+		Size:  int64(len(packData)),
+		Epoch: epoch,
 	})
 
 	var m *manifest.Manifest
@@ -122,13 +153,22 @@ func Push(
 		ext := extensions(rs)
 		m = manifest.New(newRefs, allPacks, parentTx, ext)
 	}
+	m.KeyMap = keymapTx
 
 	manifestData, err := m.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx))
+	// 9a. Encrypt manifest body (private repos).
+	if ec != nil {
+		manifestData, err = ec.encryptData(manifestData)
+		if err != nil {
+			return nil, fmt.Errorf("ops: encrypt manifest: %w", err)
+		}
+	}
+
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, visibility, keymapTx))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -187,7 +227,7 @@ func forcePush(
 	}
 
 	tipSHA := tips[0].String()
-	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, "", tipSHA))
+	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, "", tipSHA, ""))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload pack: %w", err)
 	}
@@ -206,7 +246,7 @@ func forcePush(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, ""))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, "", "", ""))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -432,7 +472,7 @@ func uploadManifestOnly(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, "", ""))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}

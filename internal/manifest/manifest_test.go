@@ -95,20 +95,37 @@ func TestParseRejectsUnknownVersion(t *testing.T) {
 }
 
 func TestRefsTags(t *testing.T) {
-	tags := RefsTags("my-repo", "")
+	tags := RefsTags("my-repo", "", "", "")
 	assertTag(t, tags, TagGenesis, "true")
 	assertNoTag(t, tags, TagParentTx)
+	assertNoTag(t, tags, TagVisibility)
+	assertNoTag(t, tags, TagKeyMap)
 
-	tags = RefsTags("my-repo", "parent-tx")
+	tags = RefsTags("my-repo", "parent-tx", "", "")
 	assertTag(t, tags, TagParentTx, "parent-tx")
 	assertNoTag(t, tags, TagGenesis)
+
+	tags = RefsTags("my-repo", "", VisibilityPrivate, "km-tx-123")
+	assertTag(t, tags, TagVisibility, VisibilityPrivate)
+	assertTag(t, tags, TagKeyMap, "km-tx-123")
 }
 
 func TestPackTags(t *testing.T) {
-	tags := PackTags("my-repo", "base-sha", "tip-sha")
+	tags := PackTags("my-repo", "base-sha", "tip-sha", "")
 	assertTag(t, tags, TagType, TypePack)
 	assertTag(t, tags, TagBase, "base-sha")
 	assertTag(t, tags, TagTip, "tip-sha")
+	assertNoTag(t, tags, TagVisibility)
+
+	tags = PackTags("my-repo", "base-sha", "tip-sha", VisibilityPrivate)
+	assertTag(t, tags, TagVisibility, VisibilityPrivate)
+}
+
+func TestKeyMapTags(t *testing.T) {
+	tags := KeyMapTags("my-repo")
+	assertTag(t, tags, TagType, TypeKeyMap)
+	assertTag(t, tags, TagRepoName, "my-repo")
+	assertTag(t, tags, TagVisibility, VisibilityPrivate)
 }
 
 func assertTag(t *testing.T, tags []Tag, name, value string) {

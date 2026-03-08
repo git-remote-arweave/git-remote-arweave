@@ -16,6 +16,9 @@ const (
 
 	PaymentNative = "native"
 	PaymentTurbo  = "turbo"
+
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
 )
 
 // Config holds all runtime configuration for git-remote-arweave.
@@ -39,6 +42,10 @@ type Config struct {
 	// DropTimeout is how long to wait before treating a pending transaction
 	// as dropped (not found) rather than still in mempool.
 	DropTimeout time.Duration
+
+	// Visibility controls whether the repository is public or private.
+	// Private repos encrypt pack data and manifest bodies.
+	Visibility string
 }
 
 // Load resolves configuration from env vars, git config, and defaults.
@@ -77,6 +84,15 @@ func Load() (*Config, error) {
 		cfg.TurboGateway = v
 	}
 
+	if v := os.Getenv("ARWEAVE_VISIBILITY"); v != "" {
+		cfg.Visibility = v
+	} else if v := gitConfig("arweave.visibility"); v != "" {
+		cfg.Visibility = v
+	}
+	if cfg.Visibility != "" && cfg.Visibility != VisibilityPublic && cfg.Visibility != VisibilityPrivate {
+		return nil, fmt.Errorf("invalid ARWEAVE_VISIBILITY %q: must be %q or %q", cfg.Visibility, VisibilityPublic, VisibilityPrivate)
+	}
+
 	if v := os.Getenv("ARWEAVE_DROP_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -92,6 +108,11 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// IsPrivate reports whether the repository is configured as private.
+func (c *Config) IsPrivate() bool {
+	return c.Visibility == VisibilityPrivate
 }
 
 // RequireWallet returns an error if Wallet is not set.

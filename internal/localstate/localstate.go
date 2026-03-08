@@ -73,7 +73,7 @@ func (s *State) loadAppliedPacks() (map[string]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("localstate: open applied-packs: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	result := map[string]bool{}
 	scanner := bufio.NewScanner(f)
@@ -92,11 +92,13 @@ func (s *State) saveAppliedPacks(applied map[string]bool) error {
 	if err != nil {
 		return fmt.Errorf("localstate: write applied-packs: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w := bufio.NewWriter(f)
 	for id := range applied {
-		fmt.Fprintln(w, id)
+		if _, err := fmt.Fprintln(w, id); err != nil {
+			return fmt.Errorf("localstate: write applied pack id: %w", err)
+		}
 	}
 	return w.Flush()
 }
@@ -128,7 +130,7 @@ func (s *State) SavePending(state *PendingState, packData []byte) error {
 			return fmt.Errorf("localstate: write pending pack: %w", err)
 		}
 	} else {
-		os.Remove(packPath) // ignore error — file may not exist
+		_ = os.Remove(packPath) // ignore error — file may not exist
 	}
 
 	// write JSON metadata

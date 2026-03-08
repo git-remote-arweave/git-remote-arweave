@@ -85,6 +85,8 @@ Typical git pushes produce packfiles of 1--100 KB plus a small JSON manifest. Tu
 
 **Immutability.** Once pushed, data is permanent. `force-push` creates a new manifest that ignores old data, but the old transactions remain on Arweave forever. Accidentally pushed secrets cannot be removed.
 
+**Encryption.** Private repositories use NaCl secretbox (XSalsa20-Poly1305) for symmetric encryption and RSA-OAEP (SHA-256) for key wrapping, using the Arweave wallet's RSA keys directly. An epoch-based key rotation scheme ensures that removed readers lose access to future data while the system remains simple and stateless — no on-chain access control, no smart contracts.
+
 ## Installation
 
 ```sh
@@ -117,6 +119,7 @@ Configuration is resolved in priority order: environment variable > git config >
 | Gateway URL | `ARWEAVE_GATEWAY` | `arweave.gateway` | `https://arweave.net` |
 | Payment method | `ARWEAVE_PAYMENT` | `arweave.payment` | `turbo` |
 | Turbo upload URL | `ARWEAVE_TURBO_GATEWAY` | `arweave.turboGateway` | `https://upload.ardrive.io` |
+| Visibility | `ARWEAVE_VISIBILITY` | `arweave.visibility` | `public` |
 | Drop timeout | `ARWEAVE_DROP_TIMEOUT` | `arweave.dropTimeout` | `30m` |
 
 The wallet is an Arweave JWK keyfile (JSON). It is only required for push operations; fetch and clone work without a wallet.
@@ -139,6 +142,59 @@ export ARWEAVE_WALLET=/path/to/wallet.json
 # Switch to native L1 uploads (e.g., for arlocal)
 git config arweave.payment native
 ```
+
+## Private repositories
+
+Repositories can be encrypted so that only authorized readers can clone or fetch.
+
+### Creating a private repository
+
+```sh
+git config arweave.visibility private
+git push origin main
+```
+
+On the first push with `visibility = private`, a symmetric encryption key is generated and stored locally in `.git/arweave/encryption.json`. All pack data and the manifest body are encrypted with NaCl secretbox (XSalsa20-Poly1305). The symmetric key is wrapped with the owner's RSA public key (from the Arweave wallet) and uploaded as a separate **keymap** transaction.
+
+Only the wallet holder can decrypt the data. The keymap transaction is referenced from the manifest via a public `Key-Map` tag, so the fetch logic can locate it without decrypting anything first.
+
+### Managing readers
+
+Readers are wallet addresses authorized to decrypt the repository. The owner's address is always included automatically. Reader management is done locally — changes take effect on the next push.
+
+```sh
+# Add a reader (pubkey will need to be fetched from Arweave)
+arweave-git readers add <wallet-address>
+
+# Add a reader with their RSA public key (base64url-encoded modulus)
+# Use this when the reader hasn't transacted on Arweave yet
+arweave-git readers add <wallet-address> --pubkey <base64url-modulus>
+
+# Remove a reader
+arweave-git readers remove <wallet-address>
+
+# List current readers
+arweave-git readers list
+```
+
+The `--pubkey` flag accepts the RSA modulus (`n` field from the Arweave JWK wallet) encoded in base64url. This is the same value as the `owner` field in Arweave transactions. The reader can extract it from their wallet keyfile and share it with the repo owner.
+
+When a reader is **added**, the existing encryption keys are re-wrapped for the new reader and the keymap is re-uploaded on the next push.
+
+When a reader is **removed**, a new encryption epoch is created with a fresh symmetric key. The removed reader retains access to packs encrypted before their removal (Arweave data is immutable), but cannot decrypt any future pushes.
+
+### Converting between public and private
+
+**Public to private:** Set `arweave.visibility` to `private` and push. Future packs will be encrypted. Historical unencrypted packs remain publicly accessible — converting to private does not retroactively hide data.
+
+**Private to public:** Set `arweave.visibility` to `public` and push. An **open keymap** is uploaded where all epoch keys are stored in plaintext, allowing anyone to decrypt historical encrypted packs. Future packs are uploaded unencrypted.
+
+### Limitations
+
+- **Transaction metadata is not encrypted.** Tags are always public, including: repo name, owner address, transaction type, parent tx link, timestamps, and the `Visibility: private` flag itself. The keymap transaction reveals the list of reader wallet addresses and the number of key epochs. An observer can see that a private repo exists, who owns it, who can read it, how often it is updated, and the approximate size of each push — without being able to read the actual content.
+- Removing a reader does not revoke access to previously encrypted data (Arweave is immutable).
+- Converting public to private does not hide already-uploaded unencrypted data.
+- Reader public keys must be either discoverable on Arweave (requires at least one prior transaction) or shared off-chain and added manually with `arweave-git readers add --pubkey`.
 
 ## Usage
 
@@ -187,6 +243,7 @@ cmd/
   git-remote-arweave/    # remote helper entry point
 internal/
   config/                # configuration loading
+  crypto/                # encryption (NaCl secretbox, RSA-OAEP key wrapping, keymap)
   manifest/              # ref manifest types, JSON, tag constants
   pack/                  # packfile generation and application (go-git)
   arweave/               # Arweave client (L1 upload, Turbo upload, fetch, GraphQL)

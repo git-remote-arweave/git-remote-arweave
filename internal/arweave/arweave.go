@@ -2,6 +2,7 @@ package arweave
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,6 +39,7 @@ type ManifestInfo struct {
 	TxID      string
 	ParentTx  string // from Parent-Tx tag, used for conflict detection
 	IsGenesis bool
+	KeyMapTx  string // from Key-Map tag, non-empty for private repos
 }
 
 // Uploader abstracts data upload to Arweave (L1 or via Turbo bundler).
@@ -132,6 +134,22 @@ func (c *Client) Owner() string {
 		return ""
 	}
 	return c.wallet.Owner()
+}
+
+// RSAPublicKey returns the wallet's RSA public key, or nil if no wallet.
+func (c *Client) RSAPublicKey() *rsa.PublicKey {
+	if c.wallet == nil || c.wallet.Signer == nil {
+		return nil
+	}
+	return c.wallet.Signer.PubKey
+}
+
+// RSAPrivateKey returns the wallet's RSA private key, or nil if no wallet.
+func (c *Client) RSAPrivateKey() *rsa.PrivateKey {
+	if c.wallet == nil || c.wallet.Signer == nil {
+		return nil
+	}
+	return c.wallet.Signer.PrvKey
 }
 
 // Guaranteed implements Uploader. L1 transactions can be dropped from mempool.
@@ -337,7 +355,8 @@ type gqlNode struct {
 	cursor    string
 	parentTx  string
 	isGenesis bool
-	timestamp int64 // unix epoch from Timestamp tag; 0 if absent
+	timestamp int64  // unix epoch from Timestamp tag; 0 if absent
+	keymapTx  string // from Key-Map tag; non-empty for private repos
 }
 
 type manifestPage struct {
@@ -366,6 +385,8 @@ func parseManifestPage(body []byte) (*manifestPage, error) {
 				n.isGenesis = tag.Value == "true"
 			case manifest.TagTimestamp:
 				n.timestamp, _ = strconv.ParseInt(tag.Value, 10, 64)
+			case manifest.TagKeyMap:
+				n.keymapTx = tag.Value
 			}
 		}
 		page.nodes = append(page.nodes, n)
@@ -406,7 +427,7 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 
 	if len(heads) == 1 {
 		h := heads[0]
-		return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
+		return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx}
 	}
 
 	// Multiple heads — trace each to its genesis and pick the one
@@ -431,7 +452,7 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 	}
 
 	h := best.head
-	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis}
+	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx}
 }
 
 // --- Retry logic for transient gateway errors ---

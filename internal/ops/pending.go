@@ -137,7 +137,7 @@ func resolvePending(
 		}
 
 		// Dropped — re-upload the pack. Push will build a fresh manifest.
-		newPackTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, pending.PackBase, pending.PackTip))
+		newPackTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, pending.PackBase, pending.PackTip, ""))
 		if err != nil {
 			return nil, fmt.Errorf("ops: re-upload pack: %w", err)
 		}

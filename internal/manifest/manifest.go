@@ -13,7 +13,10 @@ const (
 	ProtocolVersion = "1"
 	TypeRefs        = "refs"
 	TypePack        = "pack"
+	TypeKeyMap      = "keymap"
 	Version         = 1
+
+	VisibilityPrivate = "private"
 )
 
 // Tag names used in Arweave transactions.
@@ -26,7 +29,9 @@ const (
 	TagGenesis         = "Genesis"
 	TagBase            = "Base"
 	TagTip             = "Tip"
-	TagTimestamp        = "Timestamp"
+	TagTimestamp   = "Timestamp"
+	TagVisibility  = "Visibility"
+	TagKeyMap      = "Key-Map"
 )
 
 // Tag is a key-value pair for an Arweave transaction tag.
@@ -37,10 +42,11 @@ type Tag struct {
 
 // PackEntry describes a single pack transaction referenced by a manifest.
 type PackEntry struct {
-	TX   string `json:"tx"`
-	Base string `json:"base"`
-	Tip  string `json:"tip"`
-	Size int64  `json:"size"`
+	TX    string `json:"tx"`
+	Base  string `json:"base"`
+	Tip   string `json:"tip"`
+	Size  int64  `json:"size"`
+	Epoch int    `json:"epoch,omitempty"` // encryption epoch (private repos only)
 }
 
 // Manifest is the JSON body of a ref manifest transaction.
@@ -51,6 +57,7 @@ type Manifest struct {
 	Refs       map[string]string          `json:"refs"`
 	Packs      []PackEntry                `json:"packs"`
 	Parent     string                     `json:"parent,omitempty"`
+	KeyMap     string                     `json:"keymap,omitempty"`  // keymap tx-id (private repos only)
 	Extensions map[string]json.RawMessage `json:"extensions"`
 }
 
@@ -101,7 +108,8 @@ func Parse(data []byte) (*Manifest, error) {
 }
 
 // RefsTags returns the Arweave transaction tags for a ref manifest transaction.
-func RefsTags(repoName, parentTx string) []Tag {
+// For private repos, pass visibility = VisibilityPrivate and keymapTx = keymap tx-id.
+func RefsTags(repoName, parentTx, visibility, keymapTx string) []Tag {
 	tags := []Tag{
 		{TagAppName, AppName},
 		{TagProtocolVersion, ProtocolVersion},
@@ -114,17 +122,38 @@ func RefsTags(repoName, parentTx string) []Tag {
 	} else {
 		tags = append(tags, Tag{TagParentTx, parentTx})
 	}
+	if visibility == VisibilityPrivate {
+		tags = append(tags, Tag{TagVisibility, VisibilityPrivate})
+	}
+	if keymapTx != "" {
+		tags = append(tags, Tag{TagKeyMap, keymapTx})
+	}
 	return tags
 }
 
 // PackTags returns the Arweave transaction tags for a pack transaction.
-func PackTags(repoName, base, tip string) []Tag {
-	return []Tag{
+func PackTags(repoName, base, tip, visibility string) []Tag {
+	tags := []Tag{
 		{TagAppName, AppName},
 		{TagProtocolVersion, ProtocolVersion},
 		{TagType, TypePack},
 		{TagRepoName, repoName},
 		{TagBase, base},
 		{TagTip, tip},
+	}
+	if visibility == VisibilityPrivate {
+		tags = append(tags, Tag{TagVisibility, VisibilityPrivate})
+	}
+	return tags
+}
+
+// KeyMapTags returns the Arweave transaction tags for a keymap transaction.
+func KeyMapTags(repoName string) []Tag {
+	return []Tag{
+		{TagAppName, AppName},
+		{TagProtocolVersion, ProtocolVersion},
+		{TagType, TypeKeyMap},
+		{TagRepoName, repoName},
+		{TagVisibility, VisibilityPrivate},
 	}
 }

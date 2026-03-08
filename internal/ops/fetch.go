@@ -7,6 +7,7 @@ import (
 	git "github.com/go-git/go-git/v5"
 
 	"git-remote-arweave/internal/arweave"
+	"git-remote-arweave/internal/crypto"
 	"git-remote-arweave/internal/localstate"
 	"git-remote-arweave/internal/pack"
 )
@@ -43,6 +44,20 @@ func Fetch(
 		return &FetchResult{Refs: map[string]string{}}, nil
 	}
 
+	// Load keymap if this is a private repo.
+	var km *crypto.KeyMap
+	isPrivate := rs.m.KeyMap != ""
+	if isPrivate {
+		kmData, err := ar.Fetch(ctx, rs.m.KeyMap)
+		if err != nil {
+			return nil, fmt.Errorf("ops: fetch keymap %q: %w", rs.m.KeyMap, err)
+		}
+		km, err = crypto.ParseKeyMap(kmData)
+		if err != nil {
+			return nil, fmt.Errorf("ops: parse keymap: %w", err)
+		}
+	}
+
 	// Determine which packs are new.
 	applied, err := state.AppliedSet()
 	if err != nil {
@@ -58,6 +73,15 @@ func Fetch(
 		if err != nil {
 			return nil, fmt.Errorf("ops: fetch pack %q: %w", pe.TX, err)
 		}
+
+		// Decrypt if private repo.
+		if isPrivate {
+			data, err = decryptPack(data, pe.Epoch, ar.Owner(), ar.RSAPrivateKey(), km)
+			if err != nil {
+				return nil, fmt.Errorf("ops: decrypt pack %q: %w", pe.TX, err)
+			}
+		}
+
 		if err := pack.Apply(repo, data); err != nil {
 			return nil, fmt.Errorf("ops: apply pack %q: %w", pe.TX, err)
 		}
