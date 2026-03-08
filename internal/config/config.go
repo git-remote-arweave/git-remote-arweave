@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	DefaultGateway      = "https://arweave.net"
+	DefaultGateway      = "https://turbo-gateway.com"
 	DefaultTurboGateway = "https://upload.ardrive.io"
 	DefaultDropTimeout  = 30 * time.Minute
 

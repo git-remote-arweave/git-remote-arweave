@@ -114,7 +114,7 @@ Configuration is resolved in priority order: environment variable > git config >
 | Parameter | Env var | Git config | Default |
 |---|---|---|---|
 | Wallet keyfile path | `ARWEAVE_WALLET` | `arweave.wallet` | -- (required for push) |
-| Gateway URL | `ARWEAVE_GATEWAY` | `arweave.gateway` | `https://arweave.net` |
+| Gateway URL | `ARWEAVE_GATEWAY` | `arweave.gateway` | `https://turbo-gateway.com` |
 | Payment method | `ARWEAVE_PAYMENT` | `arweave.payment` | `turbo` |
 | Turbo upload URL | `ARWEAVE_TURBO_GATEWAY` | `arweave.turboGateway` | `https://upload.ardrive.io` |
 | Drop timeout | `ARWEAVE_DROP_TIMEOUT` | `arweave.dropTimeout` | `30m` |
