@@ -55,9 +55,9 @@ func Push(
 	if err != nil {
 		var mfe *ManifestFetchError
 		hasPending := res.outcome == pendingInMempool || res.outcome == pendingReUploaded
-		if errors.As(err, &mfe) && hasPending && mfe.TxID == res.manifestTxID {
-			// The latest manifest in GraphQL is our own pending manifest
-			// whose body isn't fetchable yet (Turbo bundle not settled).
+		if errors.As(err, &mfe) && hasPending && (mfe.TxID == res.manifestTxID || mfe.TxID == res.parentTxID) {
+			// The latest manifest in GraphQL is either our pending manifest
+			// or its parent (both Turbo bundles not yet settled).
 			// We can proceed using the pending state — no need to parse
 			// the manifest body since effectiveState uses pending refs.
 			rs = &RemoteState{manifestTxID: mfe.TxID}

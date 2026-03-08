@@ -122,10 +122,11 @@ func resolvePending(
 		// Apply drop timeout: if uploaded recently, treat as still pending.
 		if time.Since(pending.UploadedAt) < dropTimeout {
 			return &pendingResolution{
-				outcome:    pendingInMempool,
-				packTxID:   pending.PackTxID,
-				parentTxID: pending.ParentTxID,
-				refs:       pending.Refs,
+				outcome:      pendingInMempool,
+				packTxID:     pending.PackTxID,
+				manifestTxID: pending.ManifestTxID,
+				parentTxID:   pending.ParentTxID,
+				refs:         pending.Refs,
 			}, nil
 		}
 

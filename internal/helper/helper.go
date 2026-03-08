@@ -144,10 +144,10 @@ func (h *handler) cmdList() error {
 	if err != nil {
 		var mfe *ops.ManifestFetchError
 		if errors.As(err, &mfe) {
-			if pending != nil && pending.ManifestTxID == mfe.TxID {
-				// The unfetchable manifest is our own pending push
-				// (Turbo bundle not settled yet). This is expected —
-				// use pending refs, no warning needed.
+			if pending != nil && (pending.ManifestTxID == mfe.TxID || pending.ParentTxID == mfe.TxID) {
+				// The unfetchable manifest is either our pending push
+				// or its parent (both Turbo bundles not settled yet).
+				// This is expected — use pending refs, no warning needed.
 				fmt.Fprintf(os.Stderr, "arweave: pending manifest %s not yet settled\n", mfe.TxID)
 				rs = &ops.RemoteState{}
 			} else {
