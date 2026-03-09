@@ -24,6 +24,8 @@ func main() {
 		cmdStatus(os.Args[2:])
 	case "readers":
 		cmdReaders(os.Args[2:])
+	case "decrypt":
+		cmdDecrypt(os.Args[2:])
 	default:
 		fatalf("unknown command: %s", os.Args[1])
 	}
@@ -194,6 +196,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  readers add <address> [--pubkey <n>]  add a reader wallet")
 	fmt.Fprintln(os.Stderr, "  readers remove <address>              remove a reader wallet")
 	fmt.Fprintln(os.Stderr, "  readers list                          list reader wallets")
+	fmt.Fprintln(os.Stderr, "  decrypt <tx-id> [--keymap <tx>]       decrypt an encrypted transaction")
 	os.Exit(1)
 }
 

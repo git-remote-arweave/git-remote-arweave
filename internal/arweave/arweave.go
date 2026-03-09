@@ -689,6 +689,37 @@ func (c *Client) QueryOwnerKey(ctx context.Context, address string) (string, err
 	return resp.Transactions.Edges[0].Node.Owner.Key, nil
 }
 
+// QueryTxTags fetches the tags for a single transaction by ID.
+// Returns nil, nil if the transaction is not found in GraphQL.
+func (c *Client) QueryTxTags(ctx context.Context, txID string) (map[string]string, error) {
+	query := fmt.Sprintf(`{
+  transactions(ids: [%q]) {
+    edges { node { id tags { name value } } }
+  }
+}`, txID)
+
+	body, err := withRetry(ctx, 3, func() ([]byte, error) {
+		return c.goarClient.GraphQL(query)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("arweave: graphql tx tags lookup: %w", err)
+	}
+
+	var resp gqlResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("arweave: parse tx tags response: %w", err)
+	}
+	if len(resp.Transactions.Edges) == 0 {
+		return nil, nil
+	}
+
+	tags := make(map[string]string)
+	for _, t := range resp.Transactions.Edges[0].Node.Tags {
+		tags[t.Name] = t.Value
+	}
+	return tags, nil
+}
+
 func parseFirstTxID(body []byte) (string, error) {
 	var resp gqlResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
