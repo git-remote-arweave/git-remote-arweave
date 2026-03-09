@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
+	"git-remote-arweave/internal/arweave"
 	"git-remote-arweave/internal/config"
 	"git-remote-arweave/internal/localstate"
 )
@@ -53,16 +55,22 @@ func cmdReaders(args []string) {
 		}
 		address := args[1]
 		pubkey := parseFlag(args[2:], "--pubkey")
+
+		// Auto-resolve pubkey from Arweave if not provided.
+		if pubkey == "" {
+			resolved, err := lookupOwnerKey(address)
+			if err != nil {
+				fatalf("lookup pubkey for %s: %v", address, err)
+			}
+			pubkey = resolved
+		}
+
 		added, err := state.AddReader(address, pubkey)
 		if err != nil {
 			fatalf("add reader: %v", err)
 		}
 		if added {
-			if pubkey != "" {
-				fmt.Printf("added reader %s (with public key)\n", address)
-			} else {
-				fmt.Printf("added reader %s\n", address)
-			}
+			fmt.Printf("added reader %s (pubkey: %s...)\n", address, truncate(pubkey, 16))
 		} else {
 			fmt.Printf("reader %s already exists\n", address)
 		}
@@ -138,6 +146,28 @@ func findGitDir() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// lookupOwnerKey queries Arweave GraphQL for the RSA public key of a wallet address.
+// Returns an error if the address has no L1 transactions (pubkey not revealed on-chain).
+func lookupOwnerKey(address string) (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", fmt.Errorf("load config: %w", err)
+	}
+	ar, err := arweave.New(cfg)
+	if err != nil {
+		return "", fmt.Errorf("create client: %w", err)
+	}
+	key, err := ar.QueryOwnerKey(context.Background(), address)
+	if err != nil {
+		return "", err
+	}
+	if key == "" {
+		return "", fmt.Errorf("wallet %s has no L1 transactions; public key not available on-chain\n"+
+			"  use --pubkey <base64url-modulus> to provide it manually", address)
+	}
+	return key, nil
 }
 
 func usage() {

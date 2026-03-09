@@ -539,6 +539,43 @@ func withRetry[T any](ctx context.Context, maxRetries int, fn func() (T, error))
 	return zero, lastErr
 }
 
+// QueryOwnerKey looks up the RSA public key (base64url modulus) for a wallet address
+// by fetching any L1 transaction from that address. Returns "", nil if the address
+// has no transactions (pubkey not yet revealed on-chain).
+func (c *Client) QueryOwnerKey(ctx context.Context, address string) (string, error) {
+	query := fmt.Sprintf(`{
+  transactions(owners: [%q], first: 1) {
+    edges { node { owner { key } } }
+  }
+}`, address)
+
+	body, err := withRetry(ctx, 3, func() ([]byte, error) {
+		return c.goarClient.GraphQL(query)
+	})
+	if err != nil {
+		return "", fmt.Errorf("arweave: graphql owner key lookup: %w", err)
+	}
+
+	var resp struct {
+		Transactions struct {
+			Edges []struct {
+				Node struct {
+					Owner struct {
+						Key string `json:"key"`
+					} `json:"owner"`
+				} `json:"node"`
+			} `json:"edges"`
+		} `json:"transactions"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("arweave: parse owner key response: %w", err)
+	}
+	if len(resp.Transactions.Edges) == 0 {
+		return "", nil
+	}
+	return resp.Transactions.Edges[0].Node.Owner.Key, nil
+}
+
 func parseFirstTxID(body []byte) (string, error) {
 	var resp gqlResponse
 	if err := json.Unmarshal(body, &resp); err != nil {

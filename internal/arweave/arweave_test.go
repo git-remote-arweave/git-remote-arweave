@@ -363,6 +363,51 @@ func TestFetchOnce_Error(t *testing.T) {
 	}
 }
 
+func TestQueryOwnerKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// goar unwraps "data" field, so we must wrap the response.
+		w.Write([]byte(`{"data":{"transactions":{"edges":[{"node":{"owner":{"key":"RSA-MODULUS-BASE64"}}}]}}}`))
+	}))
+	defer srv.Close()
+
+	goarC := goar.NewClient(srv.URL)
+	c := &Client{
+		gateway:    srv.URL,
+		goarClient: goarC,
+		http:       &http.Client{},
+	}
+
+	key, err := c.QueryOwnerKey(context.Background(), "some-address")
+	if err != nil {
+		t.Fatalf("QueryOwnerKey: %v", err)
+	}
+	if key != "RSA-MODULUS-BASE64" {
+		t.Errorf("key = %q, want RSA-MODULUS-BASE64", key)
+	}
+}
+
+func TestQueryOwnerKey_NoTransactions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":{"transactions":{"edges":[]}}}`))
+	}))
+	defer srv.Close()
+
+	goarC := goar.NewClient(srv.URL)
+	c := &Client{
+		gateway:    srv.URL,
+		goarClient: goarC,
+		http:       &http.Client{},
+	}
+
+	key, err := c.QueryOwnerKey(context.Background(), "unknown-address")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if key != "" {
+		t.Errorf("expected empty key, got %q", key)
+	}
+}
+
 func TestParseFirstTxID(t *testing.T) {
 	body := []byte(`{"transactions":{"edges":[{"node":{"id":"found-id","tags":[]}}]}}`)
 	id, err := parseFirstTxID(body)
