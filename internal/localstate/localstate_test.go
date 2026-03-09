@@ -190,3 +190,48 @@ func TestLastManifestTxID(t *testing.T) {
 		t.Errorf("after overwrite: got %q, want manifest-tx-2", id)
 	}
 }
+
+func TestLastManifestWithParent(t *testing.T) {
+	s := newTestState(t)
+
+	if err := s.SaveLastManifest("manifest-1", "parent-1"); err != nil {
+		t.Fatalf("SaveLastManifest: %v", err)
+	}
+
+	txID, parentTxID, err := s.LoadLastManifest()
+	if err != nil {
+		t.Fatalf("LoadLastManifest: %v", err)
+	}
+	if txID != "manifest-1" {
+		t.Errorf("txID = %q, want manifest-1", txID)
+	}
+	if parentTxID != "parent-1" {
+		t.Errorf("parentTxID = %q, want parent-1", parentTxID)
+	}
+
+	// LoadLastManifestTxID should still work (backward compat).
+	id, err := s.LoadLastManifestTxID()
+	if err != nil || id != "manifest-1" {
+		t.Errorf("LoadLastManifestTxID: got (%q, %v)", id, err)
+	}
+}
+
+func TestLastManifestLegacyFormat(t *testing.T) {
+	s := newTestState(t)
+
+	// Legacy format: only tx-id, no parent.
+	if err := s.SaveLastManifestTxID("manifest-old"); err != nil {
+		t.Fatalf("SaveLastManifestTxID: %v", err)
+	}
+
+	txID, parentTxID, err := s.LoadLastManifest()
+	if err != nil {
+		t.Fatalf("LoadLastManifest: %v", err)
+	}
+	if txID != "manifest-old" {
+		t.Errorf("txID = %q, want manifest-old", txID)
+	}
+	if parentTxID != "" {
+		t.Errorf("parentTxID = %q, want empty for legacy", parentTxID)
+	}
+}

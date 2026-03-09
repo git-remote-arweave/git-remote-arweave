@@ -197,22 +197,39 @@ func (s *State) HasPending() bool {
 
 // --- last confirmed manifest ---
 
-// SaveLastManifestTxID records the tx-id of the last confirmed manifest.
+// SaveLastManifest records the tx-id and parent tx-id of the last confirmed manifest.
 // Used as Parent-Tx for the next push and for conflict detection.
+func (s *State) SaveLastManifest(txID, parentTxID string) error {
+	content := txID + "\n" + parentTxID
+	return os.WriteFile(filepath.Join(s.dir, lastManifestFile), []byte(content), 0o600)
+}
+
+// SaveLastManifestTxID records only the tx-id (legacy convenience wrapper).
 func (s *State) SaveLastManifestTxID(txID string) error {
-	return os.WriteFile(filepath.Join(s.dir, lastManifestFile), []byte(txID), 0o600)
+	return s.SaveLastManifest(txID, "")
+}
+
+// LoadLastManifest returns the last confirmed manifest tx-id and its parent, or "" if none.
+func (s *State) LoadLastManifest() (txID, parentTxID string, err error) {
+	data, err := os.ReadFile(filepath.Join(s.dir, lastManifestFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("localstate: read last-manifest: %w", err)
+	}
+	lines := strings.SplitN(strings.TrimSpace(string(data)), "\n", 2)
+	txID = lines[0]
+	if len(lines) > 1 {
+		parentTxID = lines[1]
+	}
+	return txID, parentTxID, nil
 }
 
 // LoadLastManifestTxID returns the last confirmed manifest tx-id, or "" if none.
 func (s *State) LoadLastManifestTxID() (string, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, lastManifestFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("localstate: read last-manifest: %w", err)
-	}
-	return strings.TrimSpace(string(data)), nil
+	txID, _, err := s.LoadLastManifest()
+	return txID, err
 }
 
 // --- source packs (for fork support) ---

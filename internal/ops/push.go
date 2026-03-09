@@ -350,7 +350,7 @@ func checkConflict(
 
 	switch res.outcome {
 	case pendingConfirmed, noPending:
-		lastManifest, err := state.LoadLastManifestTxID()
+		lastManifest, lastParent, err := state.LoadLastManifest()
 		if err != nil {
 			return nil, fmt.Errorf("ops: load last manifest for conflict check: %w", err)
 		}
@@ -362,7 +362,7 @@ func checkConflict(
 		}
 		// Manifests differ — check both directions (local ahead or
 		// remote ahead) before declaring a conflict.
-		return resolveManifestMismatch(ctx, ar, rs, lastManifest)
+		return resolveManifestMismatch(ctx, ar, rs, lastManifest, lastParent)
 
 	case pendingInMempool, pendingReUploaded:
 		if res.parentTxID != rs.manifestTxID {
@@ -382,21 +382,30 @@ func checkConflict(
 //     looking for lastManifest.
 //
 // In both cases, if ancestry is confirmed, there is no conflict.
+// lastParent is the Parent-Tx stored alongside lastManifest in local state,
+// used as a fast path when the manifest body can't be parsed (encrypted).
 func resolveManifestMismatch(
 	ctx context.Context,
 	ar *arweave.Client,
 	rs *RemoteState,
-	lastManifest string,
+	lastManifest, lastParent string,
 ) (*RemoteState, error) {
 	if ar == nil {
 		return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q; run git fetch first", rs.manifestTxID, lastManifest)
 	}
 
-	// Case 1: local ahead — walk from lastManifest toward rs.manifestTxID.
+	// Case 1: local ahead — check if rs.manifestTxID is an ancestor of lastManifest.
+	// Fast path: if the stored parent matches, no need to fetch/parse the body.
+	if lastParent == rs.manifestTxID {
+		// Our local manifest directly descends from the on-chain manifest.
+		// We can't parse the encrypted body, but we know ancestry holds.
+		// Re-use the on-chain manifest as effective remote state since
+		// the push will build on top of it.
+		return rs, nil
+	}
+	// Slow path: fetch and parse manifest bodies (works for unencrypted repos).
 	localM, err := walkAncestry(ctx, ar, lastManifest, rs.manifestTxID)
 	if err == nil {
-		// On-chain manifest is an ancestor of our local manifest.
-		// Use local manifest as effective remote state.
 		return &RemoteState{manifestTxID: lastManifest, m: localM}, nil
 	}
 

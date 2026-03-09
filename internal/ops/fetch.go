@@ -94,7 +94,7 @@ func Fetch(
 	// transaction called with existing refs" crashes during clone.
 
 	// Record the latest manifest for conflict detection on next push.
-	if err := state.SaveLastManifestTxID(rs.manifestTxID); err != nil {
+	if err := state.SaveLastManifest(rs.manifestTxID, rs.m.Parent); err != nil {
 		return nil, fmt.Errorf("ops: save last manifest: %w", err)
 	}
 

@@ -480,6 +480,33 @@ func TestCheckConflict_DivergedChains(t *testing.T) {
 	}
 }
 
+// TestCheckConflict_LocalAheadEncrypted verifies the fast path:
+// when the stored lastParent matches the remote manifest, ancestry is
+// confirmed without fetching/parsing the (encrypted) manifest body.
+func TestCheckConflict_LocalAheadEncrypted(t *testing.T) {
+	// No manifests fetchable — simulates encrypted bodies.
+	ar := newTestClient(t, map[string]*manifest.Manifest{})
+	state := newTestState(t)
+	// local-manifest has parent = remote-manifest (stored in local state).
+	_ = state.SaveLastManifest("local-manifest", "remote-manifest")
+
+	rs := &RemoteState{
+		manifestTxID: "remote-manifest",
+		m:            &manifest.Manifest{Version: 1, Refs: map[string]string{"refs/heads/main": "aaa"}},
+	}
+	res := &pendingResolution{outcome: noPending}
+	ctx := context.Background()
+
+	got, err := checkConflict(ctx, ar, rs, res, state)
+	if err != nil {
+		t.Fatalf("checkConflict should accept local-ahead via stored parent: %v", err)
+	}
+	// Fast path returns rs (remote state) since we can't parse the encrypted local manifest.
+	if got.manifestTxID != "remote-manifest" {
+		t.Errorf("expected remote-manifest, got %q", got.manifestTxID)
+	}
+}
+
 func TestPush_OwnerMismatch(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {

@@ -75,7 +75,7 @@ func resolvePending(
 			if err := state.MarkApplied(pending.PackTxID); err != nil {
 				return nil, fmt.Errorf("ops: mark applied: %w", err)
 			}
-			if err := state.SaveLastManifestTxID(pending.ManifestTxID); err != nil {
+			if err := state.SaveLastManifest(pending.ManifestTxID, pending.ParentTxID); err != nil {
 				return nil, fmt.Errorf("ops: save last manifest: %w", err)
 			}
 			if err := state.ClearPending(); err != nil {
@@ -104,7 +104,7 @@ func resolvePending(
 		if err := state.MarkApplied(pending.PackTxID); err != nil {
 			return nil, fmt.Errorf("ops: mark applied: %w", err)
 		}
-		if err := state.SaveLastManifestTxID(pending.ManifestTxID); err != nil {
+		if err := state.SaveLastManifest(pending.ManifestTxID, pending.ParentTxID); err != nil {
 			return nil, fmt.Errorf("ops: save last manifest: %w", err)
 		}
 		if err := state.ClearPending(); err != nil {
