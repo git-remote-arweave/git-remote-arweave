@@ -41,6 +41,13 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
+	// Clean up leftover temp dirs from previous failed runs.
+	if old, err := filepath.Glob(filepath.Join(os.TempDir(), "git-remote-arweave-integration-*")); err == nil {
+		for _, d := range old {
+			os.RemoveAll(d)
+		}
+	}
+
 	tmpDir, err := os.MkdirTemp("", "git-remote-arweave-integration-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "create temp dir: %v\n", err)
