@@ -321,9 +321,9 @@ func checkConflict(
 		if lastManifest == rs.manifestTxID {
 			return rs, nil
 		}
-		// Local is ahead of GraphQL — verify ancestry by fetching our
-		// last manifest from the gateway and checking its parent chain.
-		return resolveAheadOfGraphQL(ctx, ar, rs, lastManifest)
+		// Manifests differ — check both directions (local ahead or
+		// remote ahead) before declaring a conflict.
+		return resolveManifestMismatch(ctx, ar, rs, lastManifest)
 
 	case pendingInMempool, pendingReUploaded:
 		if res.parentTxID != rs.manifestTxID {
@@ -333,12 +333,17 @@ func checkConflict(
 	return rs, nil
 }
 
-// resolveAheadOfGraphQL handles the case where our local last-manifest is
-// not yet visible in GraphQL. It fetches the manifest from the gateway
-// and walks the parent chain to verify that the on-chain manifest (from
-// GraphQL) is an ancestor. If so, returns the local manifest as effective
-// remote state so the new push chains from it correctly.
-func resolveAheadOfGraphQL(
+// resolveManifestMismatch handles the case where last-manifest differs from
+// the on-chain manifest. Two scenarios:
+//
+//  1. Local ahead: our last push is delivered but GraphQL hasn't indexed it yet.
+//     Walk from lastManifest → parents looking for rs.manifestTxID.
+//  2. Remote ahead: someone (or another machine) pushed after us, or our
+//     interrupted push actually succeeded. Walk from rs.manifestTxID → parents
+//     looking for lastManifest.
+//
+// In both cases, if ancestry is confirmed, there is no conflict.
+func resolveManifestMismatch(
 	ctx context.Context,
 	ar *arweave.Client,
 	rs *RemoteState,
@@ -348,34 +353,79 @@ func resolveAheadOfGraphQL(
 		return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q; run git fetch first", rs.manifestTxID, lastManifest)
 	}
 
-	// Walk from lastManifest toward rs.manifestTxID via parent links.
-	cur := lastManifest
-	var latestM *manifest.Manifest
-	for i := 0; i < 10; i++ { // bound the walk to avoid infinite loops
-		data, err := ar.Fetch(ctx, cur)
-		if err != nil {
-			// Can't fetch — treat as real conflict.
-			return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q (fetch failed: %v)", rs.manifestTxID, lastManifest, err)
-		}
-		m, err := manifest.Parse(data)
-		if err != nil {
-			return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q (parse failed: %v)", rs.manifestTxID, lastManifest, err)
-		}
-		if i == 0 {
-			latestM = m
-		}
-		if cur == rs.manifestTxID || m.Parent == rs.manifestTxID {
-			// On-chain manifest is an ancestor — no conflict.
-			// Use our latest manifest as effective remote state.
-			return &RemoteState{manifestTxID: lastManifest, m: latestM}, nil
-		}
-		if m.Parent == "" {
-			break // reached genesis without finding rs.manifestTxID
-		}
-		cur = m.Parent
+	// Case 1: local ahead — walk from lastManifest toward rs.manifestTxID.
+	localM, err := walkAncestry(ctx, ar, lastManifest, rs.manifestTxID)
+	if err == nil {
+		// On-chain manifest is an ancestor of our local manifest.
+		// Use local manifest as effective remote state.
+		return &RemoteState{manifestTxID: lastManifest, m: localM}, nil
+	}
+
+	// Case 2: remote ahead — walk from rs.manifestTxID toward lastManifest.
+	// rs.m is already loaded. Check if lastManifest is in its ancestry.
+	if rs.m != nil && isAncestor(ctx, ar, rs.m, rs.manifestTxID, lastManifest) {
+		// Our last-manifest is an ancestor of the remote manifest.
+		// Remote is ahead — accept it and update local state.
+		return rs, nil
 	}
 
 	return nil, fmt.Errorf("ops: conflict detected — remote manifest %q differs from local %q; run git fetch first", rs.manifestTxID, lastManifest)
+}
+
+// walkAncestry fetches manifests from startTxID → parents looking for
+// targetTxID. Returns the manifest at startTxID on success.
+func walkAncestry(ctx context.Context, ar *arweave.Client, startTxID, targetTxID string) (*manifest.Manifest, error) {
+	cur := startTxID
+	var startM *manifest.Manifest
+	for i := 0; i < 10; i++ {
+		data, err := ar.Fetch(ctx, cur)
+		if err != nil {
+			return nil, err
+		}
+		m, err := manifest.Parse(data)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 {
+			startM = m
+		}
+		if cur == targetTxID || m.Parent == targetTxID {
+			return startM, nil
+		}
+		if m.Parent == "" {
+			break
+		}
+		cur = m.Parent
+	}
+	return nil, fmt.Errorf("target %q not found in ancestry of %q", targetTxID, startTxID)
+}
+
+// isAncestor checks whether targetTxID appears in the parent chain of
+// the manifest at startTxID. startM is the already-parsed manifest for
+// startTxID (avoids re-fetching).
+func isAncestor(ctx context.Context, ar *arweave.Client, startM *manifest.Manifest, startTxID, targetTxID string) bool {
+	if startTxID == targetTxID {
+		return true
+	}
+	cur := startM.Parent
+	for i := 0; i < 10; i++ {
+		if cur == "" {
+			return false
+		}
+		if cur == targetTxID {
+			return true
+		}
+		data, err := ar.Fetch(ctx, cur)
+		if err != nil {
+			return false
+		}
+		m, err := manifest.Parse(data)
+		if err != nil {
+			return false
+		}
+		cur = m.Parent
+	}
+	return false
 }
 
 // effectiveState returns the refs and packs to use as a base for the new manifest.

@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -361,6 +364,120 @@ func newTestState(t *testing.T) *localstate.State {
 		t.Fatalf("localstate.New: %v", err)
 	}
 	return s
+}
+
+// newTestClient creates an arweave.Client backed by a test HTTP server.
+// manifests maps txID → Manifest. The server returns JSON-encoded manifests.
+func newTestClient(t *testing.T, manifests map[string]*manifest.Manifest) *arweave.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		txID := strings.TrimPrefix(r.URL.Path, "/")
+		m, ok := manifests[txID]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		data, _ := json.Marshal(m)
+		_, _ = w.Write(data)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &config.Config{
+		Gateway: srv.URL,
+		Payment: config.PaymentNative, // same fetch gateway = test server
+	}
+	ar, err := arweave.New(cfg)
+	if err != nil {
+		t.Fatalf("arweave.New: %v", err)
+	}
+	return ar
+}
+
+// TestCheckConflict_RemoteAhead verifies that when remote has advanced
+// past our last-manifest (e.g. interrupted push that succeeded, or push
+// from another machine), checkConflict accepts the remote state.
+func TestCheckConflict_RemoteAhead(t *testing.T) {
+	// Chain: genesis → local-manifest → remote-manifest
+	manifests := map[string]*manifest.Manifest{
+		"remote-manifest": {Version: 1, Parent: "local-manifest", Refs: map[string]string{"refs/heads/main": "bbb"}},
+		"local-manifest":  {Version: 1, Parent: "genesis", Refs: map[string]string{"refs/heads/main": "aaa"}},
+	}
+	ar := newTestClient(t, manifests)
+	state := newTestState(t)
+	_ = state.SaveLastManifestTxID("local-manifest")
+
+	rs := &RemoteState{
+		manifestTxID: "remote-manifest",
+		m:            manifests["remote-manifest"],
+	}
+	res := &pendingResolution{outcome: noPending}
+	ctx := context.Background()
+
+	got, err := checkConflict(ctx, ar, rs, res, state)
+	if err != nil {
+		t.Fatalf("checkConflict should accept remote-ahead: %v", err)
+	}
+	if got.manifestTxID != "remote-manifest" {
+		t.Errorf("expected remote-manifest, got %q", got.manifestTxID)
+	}
+}
+
+// TestCheckConflict_LocalAhead verifies that when our local manifest is
+// ahead of GraphQL (delivered but not indexed), checkConflict returns
+// the local manifest as effective state.
+func TestCheckConflict_LocalAhead(t *testing.T) {
+	// Chain: genesis → remote-manifest → local-manifest
+	manifests := map[string]*manifest.Manifest{
+		"local-manifest":  {Version: 1, Parent: "remote-manifest", Refs: map[string]string{"refs/heads/main": "bbb"}},
+		"remote-manifest": {Version: 1, Parent: "genesis", Refs: map[string]string{"refs/heads/main": "aaa"}},
+	}
+	ar := newTestClient(t, manifests)
+	state := newTestState(t)
+	_ = state.SaveLastManifestTxID("local-manifest")
+
+	rs := &RemoteState{
+		manifestTxID: "remote-manifest",
+		m:            manifests["remote-manifest"],
+	}
+	res := &pendingResolution{outcome: noPending}
+	ctx := context.Background()
+
+	got, err := checkConflict(ctx, ar, rs, res, state)
+	if err != nil {
+		t.Fatalf("checkConflict should accept local-ahead: %v", err)
+	}
+	if got.manifestTxID != "local-manifest" {
+		t.Errorf("expected local-manifest as effective state, got %q", got.manifestTxID)
+	}
+}
+
+// TestCheckConflict_DivergedChains verifies that truly diverged chains
+// (no ancestry relation) are detected as conflicts.
+func TestCheckConflict_DivergedChains(t *testing.T) {
+	manifests := map[string]*manifest.Manifest{
+		"local-manifest":  {Version: 1, Parent: "genesis-A", Refs: map[string]string{"refs/heads/main": "aaa"}},
+		"remote-manifest": {Version: 1, Parent: "genesis-B", Refs: map[string]string{"refs/heads/main": "bbb"}},
+		"genesis-A":       {Version: 1, Refs: map[string]string{}},
+		"genesis-B":       {Version: 1, Refs: map[string]string{}},
+	}
+	ar := newTestClient(t, manifests)
+	state := newTestState(t)
+	_ = state.SaveLastManifestTxID("local-manifest")
+
+	rs := &RemoteState{
+		manifestTxID: "remote-manifest",
+		m:            manifests["remote-manifest"],
+	}
+	res := &pendingResolution{outcome: noPending}
+	ctx := context.Background()
+
+	_, err := checkConflict(ctx, ar, rs, res, state)
+	if err == nil {
+		t.Fatal("checkConflict should detect conflict on diverged chains")
+	}
+	if !strings.Contains(err.Error(), "conflict") {
+		t.Errorf("expected conflict error, got: %v", err)
+	}
 }
 
 func TestPush_OwnerMismatch(t *testing.T) {
