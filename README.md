@@ -119,10 +119,23 @@ Configuration is resolved in priority order: environment variable > git config >
 | Gateway URL | `ARWEAVE_GATEWAY` | `arweave.gateway` | `https://arweave.net` |
 | Payment method | `ARWEAVE_PAYMENT` | `arweave.payment` | `turbo` |
 | Turbo upload URL | `ARWEAVE_TURBO_GATEWAY` | `arweave.turboGateway` | `https://upload.ardrive.io` |
+| Fetch gateway URL | `ARWEAVE_FETCH_GATEWAY` | `arweave.fetchGateway` | (see below) |
 | Visibility | `ARWEAVE_VISIBILITY` | `arweave.visibility` | `public` |
 | Drop timeout | `ARWEAVE_DROP_TIMEOUT` | `arweave.dropTimeout` | `30m` |
 
 The wallet is an Arweave JWK keyfile (JSON). It is only required for push operations; fetch and clone work without a wallet.
+
+### Gateways
+
+The client uses three separate gateway endpoints, each serving a different role:
+
+- **Gateway** (`arweave.gateway`) -- the main Arweave gateway. Used for GraphQL queries (finding manifests, looking up repos), transaction status checks, and as a fallback data source. Default: `https://arweave.net`.
+
+- **Fetch gateway** (`arweave.fetchGateway`) -- used to download transaction data (packfiles, manifests, keymaps). When using Turbo, defaults to `https://turbo-gateway.com`, which serves bundled data items within seconds of upload. The main gateway (`arweave.net`) only serves bundled data after L1 settlement, which can take minutes to hours. If the fetch gateway is unavailable, the client automatically falls back to the main gateway. When using native L1 payment, defaults to the main gateway (no bundling involved).
+
+- **Turbo gateway** (`arweave.turboGateway`) -- the Turbo upload endpoint. Used only for push when `arweave.payment = turbo`. Accepts ANS-104 data items via HTTP. Default: `https://upload.ardrive.io`.
+
+In most cases, you don't need to configure any of these -- the defaults work out of the box. Override them if you're using a custom gateway, running arlocal, or debugging connectivity issues.
 
 **Payment method** controls how data is uploaded to Arweave:
 

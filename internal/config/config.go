@@ -39,6 +39,11 @@ type Config struct {
 	// TurboGateway is the Turbo upload service URL.
 	TurboGateway string
 
+	// FetchGateway is the gateway used to download transaction data.
+	// When using Turbo, defaults to turbo-gateway.com which serves
+	// bundled data items faster than arweave.net.
+	FetchGateway string
+
 	// DropTimeout is how long to wait before treating a pending transaction
 	// as dropped (not found) rather than still in mempool.
 	DropTimeout time.Duration
@@ -82,6 +87,12 @@ func Load() (*Config, error) {
 		cfg.TurboGateway = v
 	} else if v := gitConfig("arweave.turboGateway"); v != "" {
 		cfg.TurboGateway = v
+	}
+
+	if v := os.Getenv("ARWEAVE_FETCH_GATEWAY"); v != "" {
+		cfg.FetchGateway = v
+	} else if v := gitConfig("arweave.fetchGateway"); v != "" {
+		cfg.FetchGateway = v
 	}
 
 	if v := os.Getenv("ARWEAVE_VISIBILITY"); v != "" {
@@ -156,6 +167,7 @@ func Env() []Entry {
 		{"ARWEAVE_GATEWAY", "arweave.gateway", DefaultGateway},
 		{"ARWEAVE_PAYMENT", "arweave.payment", PaymentTurbo},
 		{"ARWEAVE_TURBO_GATEWAY", "arweave.turboGateway", DefaultTurboGateway},
+		{"ARWEAVE_FETCH_GATEWAY", "arweave.fetchGateway", ""},
 		{"ARWEAVE_VISIBILITY", "arweave.visibility", ""},
 		{"ARWEAVE_DROP_TIMEOUT", "arweave.dropTimeout", DefaultDropTimeout.String()},
 	}

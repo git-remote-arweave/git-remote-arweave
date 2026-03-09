@@ -90,12 +90,17 @@ type Client struct {
 // If cfg.Wallet is empty, the client is read-only.
 func New(cfg *config.Config) (*Client, error) {
 	gw := strings.TrimRight(cfg.Gateway, "/")
-	fetchGW := gw
-	if cfg.Payment == config.PaymentTurbo {
-		// turbo-gateway.com serves Turbo-uploaded bundled data items faster
-		// than arweave.net, which may return 404 until the bundle is indexed.
-		fetchGW = config.DefaultFetchGateway
+	fetchGW := cfg.FetchGateway
+	if fetchGW == "" {
+		if cfg.Payment == config.PaymentTurbo {
+			// turbo-gateway.com serves Turbo-uploaded bundled data items faster
+			// than arweave.net, which may return 404 until the bundle is indexed.
+			fetchGW = config.DefaultFetchGateway
+		} else {
+			fetchGW = gw
+		}
 	}
+	fetchGW = strings.TrimRight(fetchGW, "/")
 
 	c := &Client{
 		gateway:      gw,
