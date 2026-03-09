@@ -21,6 +21,7 @@ const (
 	lastManifestFile = "last-manifest"
 	sourcePacksFile    = "source-packs.json"
 	sourceManifestFile = "source-manifest"
+	genesisManifestFile = "genesis-manifest"
 )
 
 // State manages all local state stored under <gitDir>/arweave/.
@@ -299,4 +300,23 @@ func (s *State) ClearSourceManifest() error {
 		return nil
 	}
 	return err
+}
+
+// --- genesis manifest ---
+
+// SaveGenesisManifest stores the genesis manifest tx-id for the current chain.
+func (s *State) SaveGenesisManifest(txID string) error {
+	return os.WriteFile(filepath.Join(s.dir, genesisManifestFile), []byte(txID), 0o600)
+}
+
+// LoadGenesisManifest returns the genesis manifest tx-id, or "" if none.
+func (s *State) LoadGenesisManifest() (string, error) {
+	data, err := os.ReadFile(filepath.Join(s.dir, genesisManifestFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("localstate: read genesis-manifest: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
 }

@@ -216,6 +216,33 @@ func TestLastManifestWithParent(t *testing.T) {
 	}
 }
 
+func TestGenesisManifest(t *testing.T) {
+	s := newTestState(t)
+
+	txID, err := s.LoadGenesisManifest()
+	if err != nil || txID != "" {
+		t.Errorf("LoadGenesisManifest on empty: got (%q, %v), want (\"\", nil)", txID, err)
+	}
+
+	if err := s.SaveGenesisManifest("genesis-tx-1"); err != nil {
+		t.Fatalf("SaveGenesisManifest: %v", err)
+	}
+
+	txID, err = s.LoadGenesisManifest()
+	if err != nil || txID != "genesis-tx-1" {
+		t.Errorf("LoadGenesisManifest: got (%q, %v), want (genesis-tx-1, nil)", txID, err)
+	}
+
+	// overwrite (e.g. force push creates new genesis)
+	if err := s.SaveGenesisManifest("genesis-tx-2"); err != nil {
+		t.Fatalf("SaveGenesisManifest overwrite: %v", err)
+	}
+	txID, _ = s.LoadGenesisManifest()
+	if txID != "genesis-tx-2" {
+		t.Errorf("after overwrite: got %q, want genesis-tx-2", txID)
+	}
+}
+
 func TestSourceManifest(t *testing.T) {
 	s := newTestState(t)
 

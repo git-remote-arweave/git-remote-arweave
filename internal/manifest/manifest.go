@@ -34,6 +34,7 @@ const (
 	TagKeyMap      = "Key-Map"
 	TagEncrypted   = "Encrypted"
 	TagForkedFrom  = "Forked-From"
+	TagGenesisTx   = "Genesis-Tx"
 )
 
 // Tag is a key-value pair for an Arweave transaction tag.

@@ -229,12 +229,23 @@ func Push(
 		}
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, visibility, keymapTx, forkedFrom, ec != nil))
+	tags := manifest.RefsTags(repoName, parentTx, visibility, keymapTx, forkedFrom, ec != nil)
+	if parentTx != "" {
+		if genTx, _ := state.LoadGenesisManifest(); genTx != "" {
+			tags = append(tags, manifest.Tag{Name: manifest.TagGenesisTx, Value: genTx})
+		}
+	}
+	manifestTxID, err := uploader.Upload(ctx, manifestData, tags)
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
 
-	// 10. Save pending state.
+	// 10. Save genesis tx-id on genesis push.
+	if parentTx == "" {
+		_ = state.SaveGenesisManifest(manifestTxID)
+	}
+
+	// 11. Save pending state.
 	pending := &localstate.PendingState{
 		PackTxID:     packTxID,
 		ManifestTxID: manifestTxID,
@@ -317,6 +328,9 @@ func forcePush(
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
+
+	// Force push creates a new genesis — save its tx-id.
+	_ = state.SaveGenesisManifest(manifestTxID)
 
 	pending := &localstate.PendingState{
 		PackTxID:     packTxID,
@@ -599,9 +613,19 @@ func uploadManifestOnly(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, "", "", forkedFrom, false))
+	tags := manifest.RefsTags(repoName, parentTx, "", "", forkedFrom, false)
+	if parentTx != "" {
+		if genTx, _ := state.LoadGenesisManifest(); genTx != "" {
+			tags = append(tags, manifest.Tag{Name: manifest.TagGenesisTx, Value: genTx})
+		}
+	}
+	manifestTxID, err := uploader.Upload(ctx, manifestData, tags)
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
+	}
+
+	if parentTx == "" {
+		_ = state.SaveGenesisManifest(manifestTxID)
 	}
 
 	pending := &localstate.PendingState{
