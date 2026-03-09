@@ -25,12 +25,16 @@ const (
 )
 
 // State manages all local state stored under <gitDir>/arweave/.
+// Repo-wide files (applied-packs, encryption, readers) live in the root dir.
+// Per-remote files (pending, last-manifest, source-packs, genesis-manifest)
+// live in remoteDir when scoped via NewScoped.
 type State struct {
-	dir string // absolute path to <gitDir>/arweave/
+	dir       string // absolute path to <gitDir>/arweave/ — repo-wide files
+	remoteDir string // per-remote subdir, "" if unscoped
 }
 
-// New creates a State rooted at <gitDir>/arweave/.
-// The directory is created if it does not exist.
+// New creates a State rooted at <gitDir>/arweave/ without remote scoping.
+// Use this for operations that only need repo-wide state (readers, encryption).
 func New(gitDir string) (*State, error) {
 	dir := filepath.Join(gitDir, dirName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -39,7 +43,59 @@ func New(gitDir string) (*State, error) {
 	return &State{dir: dir}, nil
 }
 
-// --- applied-packs ---
+// NewScoped creates a State with per-remote scoping.
+// Per-remote files are stored under <gitDir>/arweave/remotes/<owner>/<repoName>/.
+// On first call, migrates any legacy flat files into the scoped directory.
+func NewScoped(gitDir, owner, repoName string) (*State, error) {
+	dir := filepath.Join(gitDir, dirName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("localstate: create dir %q: %w", dir, err)
+	}
+	remoteDir := filepath.Join(dir, "remotes", owner, repoName)
+	if err := os.MkdirAll(remoteDir, 0o700); err != nil {
+		return nil, fmt.Errorf("localstate: create remote dir %q: %w", remoteDir, err)
+	}
+	s := &State{dir: dir, remoteDir: remoteDir}
+	if err := s.migrate(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// migrate moves legacy flat files into the scoped remote directory.
+// Only runs once: if the old file exists and the new location does not,
+// the file is moved. Otherwise it's a no-op.
+func (s *State) migrate() error {
+	for _, name := range []string{
+		pendingJSONFile, pendingPackFile,
+		lastManifestFile, sourcePacksFile,
+		sourceManifestFile, genesisManifestFile,
+	} {
+		oldPath := filepath.Join(s.dir, name)
+		newPath := filepath.Join(s.remoteDir, name)
+		if _, err := os.Stat(oldPath); err != nil {
+			continue // old file doesn't exist
+		}
+		if _, err := os.Stat(newPath); err == nil {
+			continue // new file already exists, don't overwrite
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			return fmt.Errorf("localstate: migrate %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// remoteFilePath returns the path for a per-remote file.
+// Panics if the State is not scoped (programming error).
+func (s *State) remoteFilePath(name string) string {
+	if s.remoteDir == "" {
+		panic("localstate: per-remote method called on unscoped State")
+	}
+	return filepath.Join(s.remoteDir, name)
+}
+
+// --- applied-packs (repo-wide) ---
 
 // IsApplied reports whether a pack tx-id has already been applied locally.
 func (s *State) IsApplied(txID string) (bool, error) {
@@ -106,7 +162,7 @@ func (s *State) saveAppliedPacks(applied map[string]bool) error {
 	return w.Flush()
 }
 
-// --- pending push state ---
+// --- pending push state (per-remote) ---
 
 // PendingState holds the state of a push that has been uploaded
 // but not yet confirmed on-chain.
@@ -127,7 +183,7 @@ type PendingState struct {
 // packData may be nil for ref-only updates (no new pack).
 func (s *State) SavePending(state *PendingState, packData []byte) error {
 	// write packfile (or remove stale one if nil)
-	packPath := filepath.Join(s.dir, pendingPackFile)
+	packPath := s.remoteFilePath(pendingPackFile)
 	if packData != nil {
 		if err := os.WriteFile(packPath, packData, 0o600); err != nil {
 			return fmt.Errorf("localstate: write pending pack: %w", err)
@@ -141,7 +197,7 @@ func (s *State) SavePending(state *PendingState, packData []byte) error {
 	if err != nil {
 		return fmt.Errorf("localstate: marshal pending state: %w", err)
 	}
-	jsonPath := filepath.Join(s.dir, pendingJSONFile)
+	jsonPath := s.remoteFilePath(pendingJSONFile)
 	if err := os.WriteFile(jsonPath, data, 0o600); err != nil {
 		return fmt.Errorf("localstate: write pending.json: %w", err)
 	}
@@ -151,7 +207,7 @@ func (s *State) SavePending(state *PendingState, packData []byte) error {
 // LoadPending reads the pending state and pack data.
 // Returns nil, nil, nil if no pending state exists.
 func (s *State) LoadPending() (*PendingState, []byte, error) {
-	jsonPath := filepath.Join(s.dir, pendingJSONFile)
+	jsonPath := s.remoteFilePath(pendingJSONFile)
 	data, err := os.ReadFile(jsonPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil
@@ -165,7 +221,7 @@ func (s *State) LoadPending() (*PendingState, []byte, error) {
 		return nil, nil, fmt.Errorf("localstate: parse pending.json: %w", err)
 	}
 
-	packPath := filepath.Join(s.dir, pendingPackFile)
+	packPath := s.remoteFilePath(pendingPackFile)
 	packData, err := os.ReadFile(packPath)
 	if errors.Is(err, os.ErrNotExist) {
 		// ref-only update — no pack data
@@ -180,8 +236,8 @@ func (s *State) LoadPending() (*PendingState, []byte, error) {
 
 // ClearPending removes the pending state and pack data after confirmation.
 func (s *State) ClearPending() error {
-	jsonPath := filepath.Join(s.dir, pendingJSONFile)
-	packPath := filepath.Join(s.dir, pendingPackFile)
+	jsonPath := s.remoteFilePath(pendingJSONFile)
+	packPath := s.remoteFilePath(pendingPackFile)
 
 	for _, path := range []string{jsonPath, packPath} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -193,17 +249,17 @@ func (s *State) ClearPending() error {
 
 // HasPending reports whether there is an unresolved pending push.
 func (s *State) HasPending() bool {
-	_, err := os.Stat(filepath.Join(s.dir, pendingJSONFile))
+	_, err := os.Stat(s.remoteFilePath(pendingJSONFile))
 	return err == nil
 }
 
-// --- last confirmed manifest ---
+// --- last confirmed manifest (per-remote) ---
 
 // SaveLastManifest records the tx-id and parent tx-id of the last confirmed manifest.
 // Used as Parent-Tx for the next push and for conflict detection.
 func (s *State) SaveLastManifest(txID, parentTxID string) error {
 	content := txID + "\n" + parentTxID
-	return os.WriteFile(filepath.Join(s.dir, lastManifestFile), []byte(content), 0o600)
+	return os.WriteFile(s.remoteFilePath(lastManifestFile), []byte(content), 0o600)
 }
 
 // SaveLastManifestTxID records only the tx-id (legacy convenience wrapper).
@@ -213,7 +269,7 @@ func (s *State) SaveLastManifestTxID(txID string) error {
 
 // LoadLastManifest returns the last confirmed manifest tx-id and its parent, or "" if none.
 func (s *State) LoadLastManifest() (txID, parentTxID string, err error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, lastManifestFile))
+	data, err := os.ReadFile(s.remoteFilePath(lastManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", "", nil
 	}
@@ -234,7 +290,7 @@ func (s *State) LoadLastManifestTxID() (string, error) {
 	return txID, err
 }
 
-// --- source packs (for fork support) ---
+// --- source packs (per-remote, for fork support) ---
 
 // SaveSourcePacks stores the pack entries from a fetched manifest.
 // When pushing to a new repository (fork), these entries are included
@@ -245,13 +301,13 @@ func (s *State) SaveSourcePacks(packs []manifest.PackEntry) error {
 	if err != nil {
 		return fmt.Errorf("localstate: marshal source packs: %w", err)
 	}
-	return os.WriteFile(filepath.Join(s.dir, sourcePacksFile), data, 0o600)
+	return os.WriteFile(s.remoteFilePath(sourcePacksFile), data, 0o600)
 }
 
 // LoadSourcePacks returns the pack entries saved from a previous fetch.
 // Returns nil, nil if no source packs exist (not a fork scenario).
 func (s *State) LoadSourcePacks() ([]manifest.PackEntry, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, sourcePacksFile))
+	data, err := os.ReadFile(s.remoteFilePath(sourcePacksFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -268,7 +324,7 @@ func (s *State) LoadSourcePacks() ([]manifest.PackEntry, error) {
 // ClearSourcePacks removes the source packs file.
 // Called after the first fork push completes (packs are now in the manifest).
 func (s *State) ClearSourcePacks() error {
-	err := os.Remove(filepath.Join(s.dir, sourcePacksFile))
+	err := os.Remove(s.remoteFilePath(sourcePacksFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -278,12 +334,12 @@ func (s *State) ClearSourcePacks() error {
 // SaveSourceManifest stores the manifest tx-id from the source repository.
 // Used as the Forked-From tag value when pushing a fork genesis.
 func (s *State) SaveSourceManifest(txID string) error {
-	return os.WriteFile(filepath.Join(s.dir, sourceManifestFile), []byte(txID), 0o600)
+	return os.WriteFile(s.remoteFilePath(sourceManifestFile), []byte(txID), 0o600)
 }
 
 // LoadSourceManifest returns the source manifest tx-id, or "" if none.
 func (s *State) LoadSourceManifest() (string, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, sourceManifestFile))
+	data, err := os.ReadFile(s.remoteFilePath(sourceManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
@@ -295,23 +351,23 @@ func (s *State) LoadSourceManifest() (string, error) {
 
 // ClearSourceManifest removes the source manifest file.
 func (s *State) ClearSourceManifest() error {
-	err := os.Remove(filepath.Join(s.dir, sourceManifestFile))
+	err := os.Remove(s.remoteFilePath(sourceManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	return err
 }
 
-// --- genesis manifest ---
+// --- genesis manifest (per-remote) ---
 
 // SaveGenesisManifest stores the genesis manifest tx-id for the current chain.
 func (s *State) SaveGenesisManifest(txID string) error {
-	return os.WriteFile(filepath.Join(s.dir, genesisManifestFile), []byte(txID), 0o600)
+	return os.WriteFile(s.remoteFilePath(genesisManifestFile), []byte(txID), 0o600)
 }
 
 // LoadGenesisManifest returns the genesis manifest tx-id, or "" if none.
 func (s *State) LoadGenesisManifest() (string, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, genesisManifestFile))
+	data, err := os.ReadFile(s.remoteFilePath(genesisManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}

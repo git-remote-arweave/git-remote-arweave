@@ -48,7 +48,7 @@ func Run(ctx context.Context, remoteURL string, stdin io.Reader, stdout io.Write
 		return fmt.Errorf("helper: open git repo at %q: %w", gitDir, err)
 	}
 
-	state, err := localstate.New(gitDir)
+	state, err := localstate.NewScoped(gitDir, owner, repoName)
 	if err != nil {
 		return fmt.Errorf("helper: init local state: %w", err)
 	}

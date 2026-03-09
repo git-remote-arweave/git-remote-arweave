@@ -359,9 +359,9 @@ func newTestState(t *testing.T) *localstate.State {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), ".git")
 	_ = os.MkdirAll(dir, 0o700)
-	s, err := localstate.New(dir)
+	s, err := localstate.NewScoped(dir, "test-owner", "test-repo")
 	if err != nil {
-		t.Fatalf("localstate.New: %v", err)
+		t.Fatalf("localstate.NewScoped: %v", err)
 	}
 	return s
 }

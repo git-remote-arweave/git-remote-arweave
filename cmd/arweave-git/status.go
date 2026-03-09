@@ -11,6 +11,7 @@ import (
 	"git-remote-arweave/internal/arweave"
 	"git-remote-arweave/internal/config"
 	"git-remote-arweave/internal/helper"
+	"git-remote-arweave/internal/localstate"
 	"git-remote-arweave/internal/manifest"
 )
 
@@ -51,7 +52,11 @@ func cmdStatus(args []string) {
 		fatalf("create client: %v", err)
 	}
 
-	state, err := openState()
+	gitDir, err := findGitDir()
+	if err != nil {
+		fatalf("not a git repository: %v", err)
+	}
+	state, err := localstate.NewScoped(gitDir, owner, repoName)
 	if err != nil {
 		fatalf("%v", err)
 	}

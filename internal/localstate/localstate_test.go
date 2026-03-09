@@ -1,6 +1,8 @@
 package localstate
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -10,6 +12,15 @@ func newTestState(t *testing.T) *State {
 	s, err := New(t.TempDir())
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	return s
+}
+
+func newScopedTestState(t *testing.T) *State {
+	t.Helper()
+	s, err := NewScoped(t.TempDir(), "test-owner", "test-repo")
+	if err != nil {
+		t.Fatalf("NewScoped: %v", err)
 	}
 	return s
 }
@@ -67,7 +78,7 @@ func TestAppliedSetIncludes(t *testing.T) {
 }
 
 func TestPendingRoundtrip(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 
 	if s.HasPending() {
 		t.Error("HasPending should be false initially")
@@ -114,7 +125,7 @@ func TestPendingRoundtrip(t *testing.T) {
 }
 
 func TestPendingNone(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 	state, pack, err := s.LoadPending()
 	if err != nil || state != nil || pack != nil {
 		t.Errorf("LoadPending on empty state: got (%v, %v, %v), want (nil, nil, nil)", state, pack, err)
@@ -122,7 +133,7 @@ func TestPendingNone(t *testing.T) {
 }
 
 func TestClearPending(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 	_ = s.SavePending(&PendingState{PackTxID: "tx1", ManifestTxID: "tx2", UploadedAt: time.Now()}, []byte("pack"))
 
 	if err := s.ClearPending(); err != nil {
@@ -139,7 +150,7 @@ func TestClearPending(t *testing.T) {
 }
 
 func TestPendingRefOnly(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 
 	state := &PendingState{
 		ManifestTxID: "manifest-tx-1",
@@ -164,7 +175,7 @@ func TestPendingRefOnly(t *testing.T) {
 }
 
 func TestLastManifestTxID(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 
 	// empty initially
 	id, err := s.LoadLastManifestTxID()
@@ -192,7 +203,7 @@ func TestLastManifestTxID(t *testing.T) {
 }
 
 func TestLastManifestWithParent(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 
 	if err := s.SaveLastManifest("manifest-1", "parent-1"); err != nil {
 		t.Fatalf("SaveLastManifest: %v", err)
@@ -217,7 +228,7 @@ func TestLastManifestWithParent(t *testing.T) {
 }
 
 func TestGenesisManifest(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 
 	txID, err := s.LoadGenesisManifest()
 	if err != nil || txID != "" {
@@ -244,7 +255,7 @@ func TestGenesisManifest(t *testing.T) {
 }
 
 func TestSourceManifest(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 
 	// empty initially
 	txID, err := s.LoadSourceManifest()
@@ -272,7 +283,7 @@ func TestSourceManifest(t *testing.T) {
 }
 
 func TestLastManifestLegacyFormat(t *testing.T) {
-	s := newTestState(t)
+	s := newScopedTestState(t)
 
 	// Legacy format: only tx-id, no parent.
 	if err := s.SaveLastManifestTxID("manifest-old"); err != nil {
@@ -289,4 +300,90 @@ func TestLastManifestLegacyFormat(t *testing.T) {
 	if parentTxID != "" {
 		t.Errorf("parentTxID = %q, want empty for legacy", parentTxID)
 	}
+}
+
+func TestScopedIsolation(t *testing.T) {
+	dir := t.TempDir()
+
+	s1, err := NewScoped(dir, "alice", "repo-a")
+	if err != nil {
+		t.Fatalf("NewScoped alice: %v", err)
+	}
+	s2, err := NewScoped(dir, "bob", "repo-b")
+	if err != nil {
+		t.Fatalf("NewScoped bob: %v", err)
+	}
+
+	// Save pending in s1, verify s2 doesn't see it.
+	_ = s1.SavePending(&PendingState{ManifestTxID: "alice-manifest", UploadedAt: time.Now()}, nil)
+
+	if !s1.HasPending() {
+		t.Error("s1 should have pending")
+	}
+	if s2.HasPending() {
+		t.Error("s2 should NOT have pending from s1")
+	}
+
+	// Save genesis in s2, verify s1 doesn't see it.
+	_ = s2.SaveGenesisManifest("bob-genesis")
+
+	g1, _ := s1.LoadGenesisManifest()
+	g2, _ := s2.LoadGenesisManifest()
+	if g1 != "" {
+		t.Errorf("s1 genesis should be empty, got %q", g1)
+	}
+	if g2 != "bob-genesis" {
+		t.Errorf("s2 genesis = %q, want bob-genesis", g2)
+	}
+}
+
+func TestMigrateLegacyFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create legacy flat files as if from old version.
+	arDir := filepath.Join(dir, dirName)
+	_ = os.MkdirAll(arDir, 0o700)
+	_ = os.WriteFile(filepath.Join(arDir, pendingJSONFile), []byte(`{"manifest_tx":"old-pending"}`), 0o600)
+	_ = os.WriteFile(filepath.Join(arDir, lastManifestFile), []byte("old-manifest"), 0o600)
+	_ = os.WriteFile(filepath.Join(arDir, genesisManifestFile), []byte("old-genesis"), 0o600)
+
+	// NewScoped should migrate them.
+	s, err := NewScoped(dir, "owner", "repo")
+	if err != nil {
+		t.Fatalf("NewScoped: %v", err)
+	}
+
+	// Verify old files are gone.
+	for _, name := range []string{pendingJSONFile, lastManifestFile, genesisManifestFile} {
+		if _, err := os.Stat(filepath.Join(arDir, name)); !os.IsNotExist(err) {
+			t.Errorf("legacy file %q should be removed after migration", name)
+		}
+	}
+
+	// Verify new files are accessible.
+	pending, _, _ := s.LoadPending()
+	if pending == nil || pending.ManifestTxID != "old-pending" {
+		t.Errorf("migrated pending = %v, want manifest_tx=old-pending", pending)
+	}
+
+	txID, _ := s.LoadLastManifestTxID()
+	if txID != "old-manifest" {
+		t.Errorf("migrated last-manifest = %q, want old-manifest", txID)
+	}
+
+	genesis, _ := s.LoadGenesisManifest()
+	if genesis != "old-genesis" {
+		t.Errorf("migrated genesis = %q, want old-genesis", genesis)
+	}
+}
+
+func TestUnscopedPanicsOnPerRemoteMethod(t *testing.T) {
+	s := newTestState(t)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic on unscoped State calling per-remote method")
+		}
+	}()
+	s.HasPending() // should panic
 }
