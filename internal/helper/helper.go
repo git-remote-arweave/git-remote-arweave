@@ -177,6 +177,9 @@ func (h *handler) cmdList(forPush bool) error {
 			if txID := rs.ManifestTxID(); txID != "" {
 				_ = h.state.SaveSourceManifest(txID)
 			}
+			if kmTx := rs.KeyMapTx(); kmTx != "" {
+				_ = h.state.SaveSourceKeymap(kmTx)
+			}
 		}
 	}
 

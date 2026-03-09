@@ -68,6 +68,14 @@ func initEncryption(state *localstate.State) (*encryptionContext, error) {
 	// Check if readers changed since last keymap upload.
 	if es.KeyMapTxID == "" {
 		// No keymap uploaded yet — need to upload one.
+		// For forks (LastReaders populated by importForkEpochKeys), check
+		// if a reader was removed and rotate to a new epoch if so.
+		if len(es.LastReaders) > 0 {
+			_, removed := diffReaders(es.LastReaders, localstate.Addresses(readers))
+			if removed {
+				return rotateKey(state)
+			}
+		}
 		return &encryptionContext{epoch: es.CurrentEpoch, key: key, changed: true}, nil
 	}
 
@@ -279,6 +287,67 @@ func syncReadersFromKeyMap(state *localstate.State, km *crypto.KeyMap) {
 		}
 		_, _ = state.AddReader(addr, pubkey)
 	}
+}
+
+// importForkEpochKeys fetches the original repo's keymap and unwraps all epoch
+// keys using the fork owner's private key. The keys are saved to encryption.json
+// so that initEncryption finds pre-populated state and reuses the same symmetric
+// keys. This ensures encrypted source packs remain decryptable in the fork.
+func importForkEpochKeys(
+	ctx context.Context,
+	ar *arweave.Client,
+	state *localstate.State,
+	sourceKeymapTx string,
+) error {
+	// Fetch and parse the original keymap.
+	kmData, err := ar.Fetch(ctx, sourceKeymapTx)
+	if err != nil {
+		return fmt.Errorf("ops: fetch source keymap %q: %w", sourceKeymapTx, err)
+	}
+	km, err := crypto.ParseKeyMap(kmData)
+	if err != nil {
+		return fmt.Errorf("ops: parse source keymap: %w", err)
+	}
+
+	// Unwrap all epoch keys using the fork owner's private key.
+	epochKeys := make(map[string]string, len(km.Epochs))
+	latestEpoch := -1
+	for epochStr := range km.Epochs {
+		epoch, err := strconv.Atoi(epochStr)
+		if err != nil {
+			continue
+		}
+		key, err := km.GetKey(epoch, ar.Owner(), ar.RSAPrivateKey())
+		if err != nil {
+			return fmt.Errorf("ops: unwrap epoch %d key from source keymap: %w", epoch, err)
+		}
+		epochKeys[epochStr] = base64.RawURLEncoding.EncodeToString(key[:])
+		if epoch > latestEpoch {
+			latestEpoch = epoch
+		}
+	}
+
+	if latestEpoch < 0 {
+		return fmt.Errorf("ops: source keymap has no epochs")
+	}
+
+	// Record the original keymap's latest-epoch readers as LastReaders so
+	// that initEncryption can detect additions/removals and rotate if needed.
+	var lastAddrs []string
+	for _, pubkey := range km.Readers(latestEpoch) {
+		addr, err := crypto.OwnerToAddress(pubkey)
+		if err != nil {
+			continue
+		}
+		lastAddrs = append(lastAddrs, addr)
+	}
+
+	es := &localstate.EncryptionState{
+		CurrentEpoch: latestEpoch,
+		EpochKeys:    epochKeys,
+		LastReaders:  lastAddrs,
+	}
+	return state.SaveEncryption(es)
 }
 
 // diffReaders compares current readers against lastReaders.

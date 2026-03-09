@@ -284,6 +284,39 @@ func TestSourceManifest(t *testing.T) {
 	}
 }
 
+func TestSourceKeymap(t *testing.T) {
+	s := newScopedTestState(t)
+
+	// Empty initially.
+	txID, err := s.LoadSourceKeymap()
+	if err != nil || txID != "" {
+		t.Errorf("LoadSourceKeymap on empty: got (%q, %v), want (\"\", nil)", txID, err)
+	}
+
+	if err := s.SaveSourceKeymap("km-tx-abc"); err != nil {
+		t.Fatalf("SaveSourceKeymap: %v", err)
+	}
+
+	txID, err = s.LoadSourceKeymap()
+	if err != nil || txID != "km-tx-abc" {
+		t.Errorf("LoadSourceKeymap: got (%q, %v), want (km-tx-abc, nil)", txID, err)
+	}
+
+	if err := s.ClearSourceKeymap(); err != nil {
+		t.Fatalf("ClearSourceKeymap: %v", err)
+	}
+
+	txID, err = s.LoadSourceKeymap()
+	if err != nil || txID != "" {
+		t.Errorf("after clear: got (%q, %v), want (\"\", nil)", txID, err)
+	}
+
+	// ClearSourceKeymap on already-cleared should not error.
+	if err := s.ClearSourceKeymap(); err != nil {
+		t.Errorf("ClearSourceKeymap idempotent: %v", err)
+	}
+}
+
 func TestLastManifestLegacyFormat(t *testing.T) {
 	s := newScopedTestState(t)
 

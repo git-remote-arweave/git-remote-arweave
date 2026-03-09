@@ -21,6 +21,7 @@ const (
 	lastManifestFile = "last-manifest"
 	sourcePacksFile    = "source-packs.json"
 	sourceManifestFile = "source-manifest"
+	sourceKeymapFile   = "source-keymap"
 	genesisManifestFile = "genesis-manifest"
 )
 
@@ -358,6 +359,42 @@ func (s *State) ClearSourceManifest() error {
 		return nil
 	}
 	return err
+}
+
+// SaveSourceKeymap stores the keymap tx-id from a fetched private repo.
+// When forking a private repo, the fork owner uses this keymap to unwrap
+// epoch keys from the original repository.
+func (s *State) SaveSourceKeymap(txID string) error {
+	return os.WriteFile(filepath.Join(s.dir, sourceKeymapFile), []byte(txID), 0o600)
+}
+
+// LoadSourceKeymap returns the source keymap tx-id, or "" if none.
+func (s *State) LoadSourceKeymap() (string, error) {
+	data, err := os.ReadFile(filepath.Join(s.dir, sourceKeymapFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("localstate: read source-keymap: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// ClearSourceKeymap removes the source keymap file.
+func (s *State) ClearSourceKeymap() error {
+	err := os.Remove(filepath.Join(s.dir, sourceKeymapFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// ClearSourceState removes all source-related files (packs, manifest, keymap).
+// Called after a successful fork push.
+func (s *State) ClearSourceState() {
+	_ = s.ClearSourcePacks()
+	_ = s.ClearSourceManifest()
+	_ = s.ClearSourceKeymap()
 }
 
 // --- genesis manifest (per-remote) ---

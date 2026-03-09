@@ -88,7 +88,7 @@ func TestReaderList(t *testing.T) {
 
 	// Add reader.
 	run(t, dir, env, binaryPath("arweave-git"),
-		"readers", "add", "test-addr-123")
+		"readers", "add", "test-addr-123", "--pubkey", "dGVzdC1wdWJrZXk")
 	out = run(t, dir, env, binaryPath("arweave-git"), "readers", "list")
 	if out == "no readers configured" {
 		t.Fatal("reader not added")

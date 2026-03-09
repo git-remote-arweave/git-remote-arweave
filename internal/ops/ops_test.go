@@ -31,6 +31,26 @@ func TestRemoteState_HasKeyMap(t *testing.T) {
 	}
 }
 
+func TestRemoteState_KeyMapTx(t *testing.T) {
+	// Nil manifest.
+	rs := &RemoteState{}
+	if got := rs.KeyMapTx(); got != "" {
+		t.Errorf("KeyMapTx() = %q for nil manifest, want empty", got)
+	}
+
+	// Manifest without keymap.
+	rs = &RemoteState{m: &manifest.Manifest{}}
+	if got := rs.KeyMapTx(); got != "" {
+		t.Errorf("KeyMapTx() = %q for empty KeyMap, want empty", got)
+	}
+
+	// Manifest with keymap.
+	rs = &RemoteState{m: &manifest.Manifest{KeyMap: "km-tx-456"}}
+	if got := rs.KeyMapTx(); got != "km-tx-456" {
+		t.Errorf("KeyMapTx() = %q, want km-tx-456", got)
+	}
+}
+
 func TestSyncReadersFromKeyMap(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), ".git")
 	_ = os.MkdirAll(dir, 0o700)

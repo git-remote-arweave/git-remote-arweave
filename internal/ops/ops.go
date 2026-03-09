@@ -95,6 +95,14 @@ func (rs *RemoteState) HasKeyMap() bool {
 	return rs.m != nil && rs.m.KeyMap != ""
 }
 
+// KeyMapTx returns the keymap tx-id from the remote manifest, or "" if none.
+func (rs *RemoteState) KeyMapTx() string {
+	if rs.m == nil {
+		return ""
+	}
+	return rs.m.KeyMap
+}
+
 // ManifestFetchError indicates that a manifest was found via GraphQL
 // but its body could not be downloaded. This can happen when data items
 // are bundled by an untrusted bundler (e.g., Turbo devnet).

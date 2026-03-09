@@ -116,6 +116,17 @@ func Push(
 			}
 		}
 	}
+	// 6a. Private fork: import epoch keys from the original keymap so that
+	// encryptAndUpload reuses the same symmetric keys for source packs.
+	if len(sourcePacks) > 0 && cfg.IsPrivate() {
+		sourceKeymap, _ := state.LoadSourceKeymap()
+		if sourceKeymap != "" {
+			if err := importForkEpochKeys(ctx, ar, state, sourceKeymap); err != nil {
+				return nil, fmt.Errorf("ops: import fork epoch keys: %w", err)
+			}
+		}
+	}
+
 	if len(tips) == 0 {
 		// Ref-only update (e.g., delete). No new objects to upload.
 		return uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks, forkedFrom)
@@ -126,18 +137,19 @@ func Push(
 	if err != nil {
 		return nil, fmt.Errorf("ops: generate pack: %w", err)
 	}
-	if packData == nil {
-		// No new objects (e.g., fork with no changes). Upload manifest only.
+	if packData == nil && !cfg.IsPrivate() {
+		// No new objects, public repo. Upload manifest only.
 		result, err := uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks, forkedFrom)
 		if err != nil {
 			return nil, err
 		}
 		if len(sourcePacks) > 0 {
-			_ = state.ClearSourcePacks()
-			_ = state.ClearSourceManifest()
+			state.ClearSourceState()
 		}
 		return result, nil
 	}
+	// For private repos packData may be nil (e.g., pure fork) but we still
+	// need encryptAndUpload to handle encryption, keymap, and encrypted manifest.
 
 	// 7b. Private→public conversion: upload open keymap so historical
 	// encrypted packs remain accessible to anyone.
@@ -177,10 +189,9 @@ func Push(
 		return nil, err
 	}
 
-	// Clean up source packs after successful fork push.
+	// Clean up source state after successful fork push.
 	if len(sourcePacks) > 0 {
-		_ = state.ClearSourcePacks()
-		_ = state.ClearSourceManifest()
+		state.ClearSourceState()
 	}
 
 	return result, nil
@@ -199,13 +210,15 @@ func forcePush(
 	repoName string,
 	input *PushInput,
 ) (*PushResult, error) {
-	// Clear local state — start fresh.
+	// Clear per-remote state — start fresh.
 	_ = state.ClearPending()
 	_ = state.SaveLastManifestTxID("")
-	_ = state.ClearSourcePacks()
-	_ = state.ClearSourceManifest()
 
-	// Collect tips (no bases — full pack).
+	// Load source packs before clearing — fork force push reuses them.
+	sourcePacks, _ := state.LoadSourcePacks()
+	forkedFrom, _ := state.LoadSourceManifest()
+
+	// Collect tips.
 	var tips []plumbing.Hash
 	zeroHash := plumbing.ZeroHash.String()
 	for _, sha := range input.RefUpdates {
@@ -217,17 +230,49 @@ func forcePush(
 		return nil, fmt.Errorf("ops: force push with no refs")
 	}
 
-	packData, err := pack.Generate(repo, nil, tips)
+	// Use source pack tips as bases so we only upload the delta.
+	var bases []plumbing.Hash
+	for _, pe := range sourcePacks {
+		if pe.Tip != "" {
+			bases = append(bases, plumbing.NewHash(pe.Tip))
+		}
+	}
+
+	// Private fork: import epoch keys from the original keymap.
+	if len(sourcePacks) > 0 && cfg.IsPrivate() {
+		sourceKeymap, _ := state.LoadSourceKeymap()
+		if sourceKeymap != "" {
+			if err := importForkEpochKeys(ctx, ar, state, sourceKeymap); err != nil {
+				return nil, fmt.Errorf("ops: import fork epoch keys: %w", err)
+			}
+		}
+	}
+
+	packData, err := pack.Generate(repo, bases, tips)
 	if err != nil {
 		return nil, fmt.Errorf("ops: generate pack: %w", err)
 	}
 
 	tipSHA := tips[0].String()
-	return encryptAndUpload(ctx, ar, uploader, state, cfg, repoName, &uploadParams{
-		packData: packData,
-		refs:     input.RefUpdates,
-		tipSHA:   tipSHA,
+	baseSHA := ""
+	if len(bases) > 0 {
+		baseSHA = bases[0].String()
+	}
+
+	result, err := encryptAndUpload(ctx, ar, uploader, state, cfg, repoName, &uploadParams{
+		packData:      packData,
+		refs:          input.RefUpdates,
+		existingPacks: sourcePacks,
+		baseSHA:       baseSHA,
+		tipSHA:        tipSHA,
+		forkedFrom:    forkedFrom,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	state.ClearSourceState()
+	return result, nil
 }
 
 // uploadParams describes what to upload after pack generation.
@@ -273,20 +318,27 @@ func encryptAndUpload(
 			return nil, fmt.Errorf("ops: init encryption: %w", err)
 		}
 		epoch = ec.epoch
-		packData, err = ec.encryptData(packData)
-		if err != nil {
-			return nil, fmt.Errorf("ops: encrypt pack: %w", err)
+		if packData != nil {
+			packData, err = ec.encryptData(packData)
+			if err != nil {
+				return nil, fmt.Errorf("ops: encrypt pack: %w", err)
+			}
 		}
 	}
 
-	// 2. Upload pack.
-	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, p.baseSHA, p.tipSHA, visibility))
-	if err != nil {
-		return nil, fmt.Errorf("ops: upload pack: %w", err)
+	// 2. Upload pack (skipped for manifest-only pushes like pure forks).
+	var packTxID string
+	if packData != nil {
+		var err error
+		packTxID, err = uploader.Upload(ctx, packData, manifest.PackTags(repoName, p.baseSHA, p.tipSHA, visibility))
+		if err != nil {
+			return nil, fmt.Errorf("ops: upload pack: %w", err)
+		}
 	}
 
 	// 3. Upload keymap if needed (private repos).
 	if ec != nil {
+		var err error
 		if ec.changed {
 			keymapTx, err = buildAndUploadKeyMap(ctx, uploader, state, repoName, ar.Owner(), ar.RSAPublicKey())
 			if err != nil {
@@ -298,14 +350,18 @@ func encryptAndUpload(
 	}
 
 	// 4. Build manifest.
-	allPacks := append(p.existingPacks, manifest.PackEntry{
-		TX:        packTxID,
-		Base:      p.baseSHA,
-		Tip:       p.tipSHA,
-		Size:      int64(len(packData)),
-		Epoch:     epoch,
-		Encrypted: ec != nil,
-	})
+	allPacks := make([]manifest.PackEntry, len(p.existingPacks))
+	copy(allPacks, p.existingPacks)
+	if packTxID != "" {
+		allPacks = append(allPacks, manifest.PackEntry{
+			TX:        packTxID,
+			Base:      p.baseSHA,
+			Tip:       p.tipSHA,
+			Size:      int64(len(packData)),
+			Epoch:     epoch,
+			Encrypted: ec != nil,
+		})
+	}
 
 	var m *manifest.Manifest
 	if p.parentTx == "" {
