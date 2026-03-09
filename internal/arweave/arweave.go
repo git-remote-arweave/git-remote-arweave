@@ -207,15 +207,7 @@ func (c *Client) Fetch(ctx context.Context, txID string) ([]byte, error) {
 }
 
 func (c *Client) fetchOnce(ctx context.Context, txID string) ([]byte, error) {
-	data, err := c.fetchFrom(ctx, c.fetchGateway, txID)
-	if err != nil && c.fetchGateway != c.gateway && isTransientError(err) {
-		// Primary fetch gateway (turbo-gateway.com) returned a transient
-		// error — fall back to the main gateway (arweave.net).
-		if fallbackData, fallbackErr := c.fetchFrom(ctx, c.gateway, txID); fallbackErr == nil {
-			return fallbackData, nil
-		}
-	}
-	return data, err
+	return c.fetchFrom(ctx, c.fetchGateway, txID)
 }
 
 func (c *Client) fetchFrom(ctx context.Context, gateway, txID string) ([]byte, error) {

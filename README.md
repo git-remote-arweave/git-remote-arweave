@@ -131,7 +131,7 @@ The client uses three separate gateway endpoints, each serving a different role:
 
 - **Gateway** (`arweave.gateway`) -- the main Arweave gateway. Used for GraphQL queries (finding manifests, looking up repos), transaction status checks, and as a fallback data source. Default: `https://arweave.net`.
 
-- **Fetch gateway** (`arweave.fetchGateway`) -- used to download transaction data (packfiles, manifests, keymaps). When using Turbo, defaults to `https://turbo-gateway.com`, which serves bundled data items within seconds of upload. The main gateway (`arweave.net`) only serves bundled data after L1 settlement, which can take minutes to hours. If the fetch gateway is unavailable, the client automatically falls back to the main gateway. When using native L1 payment, defaults to the main gateway (no bundling involved).
+- **Fetch gateway** (`arweave.fetchGateway`) -- used to download transaction data (packfiles, manifests, keymaps). When using Turbo, defaults to `https://turbo-gateway.com`, which serves bundled data items within seconds of upload. The main gateway (`arweave.net`) only serves bundled data after L1 settlement, which can take minutes to hours — so it cannot be used as a reliable fallback for Turbo-uploaded data. When using native L1 payment, defaults to the main gateway (no bundling involved).
 
 - **Turbo gateway** (`arweave.turboGateway`) -- the Turbo upload endpoint. Used only for push when `arweave.payment = turbo`. Accepts ANS-104 data items via HTTP. Default: `https://upload.ardrive.io`.
 
