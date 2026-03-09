@@ -1,9 +1,12 @@
 package arweave
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -313,6 +316,118 @@ func TestFindChainHead_GenesisOutsideWindow(t *testing.T) {
 	// D is the only head (C is referenced as D's parent).
 	if info.TxID != "D" {
 		t.Errorf("expected D, got %q", info.TxID)
+	}
+}
+
+// TestFetchOnce_FallbackOnTransientError verifies that fetchOnce falls back
+// to the main gateway when the primary fetch gateway returns a transient error.
+func TestFetchOnce_FallbackOnTransientError(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer primary.Close()
+
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("fallback-data"))
+	}))
+	defer fallback.Close()
+
+	c := &Client{
+		gateway:      fallback.URL,
+		fetchGateway: primary.URL,
+		http:         &http.Client{},
+	}
+
+	data, err := c.fetchOnce(context.Background(), "test-tx")
+	if err != nil {
+		t.Fatalf("fetchOnce should succeed via fallback: %v", err)
+	}
+	if string(data) != "fallback-data" {
+		t.Errorf("data = %q, want fallback-data", data)
+	}
+}
+
+// TestFetchOnce_NoFallbackOnPermanentError verifies that fetchOnce does NOT
+// fall back when the primary gateway returns a permanent error (e.g. 404).
+func TestFetchOnce_NoFallbackOnPermanentError(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer primary.Close()
+
+	fallbackCalled := false
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackCalled = true
+		_, _ = w.Write([]byte("should-not-reach"))
+	}))
+	defer fallback.Close()
+
+	c := &Client{
+		gateway:      fallback.URL,
+		fetchGateway: primary.URL,
+		http:         &http.Client{},
+	}
+
+	_, err := c.fetchOnce(context.Background(), "test-tx")
+	if err == nil {
+		t.Fatal("fetchOnce should fail on 404")
+	}
+	if fallbackCalled {
+		t.Error("fallback should not be called for permanent errors")
+	}
+}
+
+// TestFetchOnce_NoFallbackWhenSameGateway verifies that fetchOnce does not
+// attempt fallback when fetchGateway == gateway (would be redundant).
+func TestFetchOnce_NoFallbackWhenSameGateway(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		gateway:      srv.URL,
+		fetchGateway: srv.URL,
+		http:         &http.Client{},
+	}
+
+	_, err := c.fetchOnce(context.Background(), "test-tx")
+	if err == nil {
+		t.Fatal("fetchOnce should fail")
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 call (no fallback to self), got %d", calls)
+	}
+}
+
+// TestFetchOnce_FallbackAlsoFails verifies that when both gateways fail,
+// the original (primary) error is returned.
+func TestFetchOnce_FallbackAlsoFails(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer primary.Close()
+
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer fallback.Close()
+
+	c := &Client{
+		gateway:      fallback.URL,
+		fetchGateway: primary.URL,
+		http:         &http.Client{},
+	}
+
+	_, err := c.fetchOnce(context.Background(), "test-tx")
+	if err == nil {
+		t.Fatal("fetchOnce should fail when both gateways fail")
+	}
+	// Should return the primary error (502), not the fallback error (404).
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("expected primary error (502), got: %v", err)
 	}
 }
 

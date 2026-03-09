@@ -67,6 +67,8 @@ func Push(
 			// We can proceed using the pending state — no need to parse
 			// the manifest body since effectiveState uses pending refs.
 			rs = &RemoteState{manifestTxID: mfe.TxID}
+		} else if errors.As(err, &mfe) && arweave.IsTransient(mfe.Err) {
+			return nil, fmt.Errorf("ops: manifest %s temporarily unavailable (gateway error), try again later", mfe.TxID)
 		} else {
 			return nil, err
 		}

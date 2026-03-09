@@ -202,7 +202,19 @@ func (c *Client) Fetch(ctx context.Context, txID string) ([]byte, error) {
 }
 
 func (c *Client) fetchOnce(ctx context.Context, txID string) ([]byte, error) {
-	fetchURL := c.fetchGateway + "/" + txID
+	data, err := c.fetchFrom(ctx, c.fetchGateway, txID)
+	if err != nil && c.fetchGateway != c.gateway && isTransientError(err) {
+		// Primary fetch gateway (turbo-gateway.com) returned a transient
+		// error — fall back to the main gateway (arweave.net).
+		if fallbackData, fallbackErr := c.fetchFrom(ctx, c.gateway, txID); fallbackErr == nil {
+			return fallbackData, nil
+		}
+	}
+	return data, err
+}
+
+func (c *Client) fetchFrom(ctx context.Context, gateway, txID string) ([]byte, error) {
+	fetchURL := gateway + "/" + txID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("arweave: fetch %q: %w", txID, err)
@@ -483,8 +495,8 @@ func IsTransient(err error) bool {
 	return isTransientError(err)
 }
 
-// isTransientError checks whether an error or HTTP status indicates a
-// transient gateway problem (502, 503, 504) worth retrying.
+// isTransientError checks whether an error indicates a transient gateway
+// problem (502/503/504, timeouts, connection resets) worth retrying.
 func isTransientError(err error) bool {
 	if err == nil {
 		return false
@@ -495,7 +507,11 @@ func isTransientError(err error) bool {
 		strings.Contains(s, "504") ||
 		strings.Contains(s, "Bad Gateway") ||
 		strings.Contains(s, "Service Unavailable") ||
-		strings.Contains(s, "Gateway Timeout")
+		strings.Contains(s, "Gateway Timeout") ||
+		strings.Contains(s, "Client.Timeout") ||
+		strings.Contains(s, "context deadline exceeded") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "connection refused")
 }
 
 // withRetry retries fn up to maxRetries times with exponential backoff
