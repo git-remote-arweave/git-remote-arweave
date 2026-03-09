@@ -112,7 +112,7 @@ func (h *handler) loop(r io.Reader) error {
 				return err
 			}
 		case line == "list" || line == "list for-push":
-			if err := h.cmdList(); err != nil {
+			if err := h.cmdList(line == "list for-push"); err != nil {
 				return err
 			}
 		case strings.HasPrefix(line, "fetch "):
@@ -137,7 +137,7 @@ func (h *handler) cmdCapabilities() error {
 	return err
 }
 
-func (h *handler) cmdList() error {
+func (h *handler) cmdList(forPush bool) error {
 	pending, _, _ := h.state.LoadPending()
 
 	rs, err := ops.LoadRemoteState(h.ctx, h.ar, h.owner, h.repoName)
@@ -169,10 +169,14 @@ func (h *handler) cmdList() error {
 	// Save pack entries and manifest tx-id for fork support. When this repo
 	// is later pushed to a different wallet, the genesis manifest can reference
 	// these packs and include a Forked-From tag.
-	if packs := rs.Packs(); len(packs) > 0 {
-		_ = h.state.SaveSourcePacks(packs)
-		if txID := rs.ManifestTxID(); txID != "" {
-			_ = h.state.SaveSourceManifest(txID)
+	// Only save during fetch (plain "list"), not during push ("list for-push"),
+	// to avoid overwriting source-packs with current remote's own packs.
+	if !forPush {
+		if packs := rs.Packs(); len(packs) > 0 {
+			_ = h.state.SaveSourcePacks(packs)
+			if txID := rs.ManifestTxID(); txID != "" {
+				_ = h.state.SaveSourceManifest(txID)
+			}
 		}
 	}
 

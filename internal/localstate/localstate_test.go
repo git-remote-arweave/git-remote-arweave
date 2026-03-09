@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"git-remote-arweave/internal/manifest"
 )
 
 func newTestState(t *testing.T) *State {
@@ -374,6 +376,38 @@ func TestMigrateLegacyFiles(t *testing.T) {
 	genesis, _ := s.LoadGenesisManifest()
 	if genesis != "old-genesis" {
 		t.Errorf("migrated genesis = %q, want old-genesis", genesis)
+	}
+}
+
+func TestSourcePacksCrossRemote(t *testing.T) {
+	dir := t.TempDir()
+
+	// Fetch from source remote saves source-packs.
+	s1, err := NewScoped(dir, "alice", "original")
+	if err != nil {
+		t.Fatalf("NewScoped alice: %v", err)
+	}
+	packs := []manifest.PackEntry{{TX: "pack-1"}, {TX: "pack-2"}}
+	if err := s1.SaveSourcePacks(packs); err != nil {
+		t.Fatalf("SaveSourcePacks: %v", err)
+	}
+	_ = s1.SaveSourceManifest("source-manifest-tx")
+
+	// Push to fork remote should see the same source-packs.
+	s2, err := NewScoped(dir, "bob", "fork")
+	if err != nil {
+		t.Fatalf("NewScoped bob: %v", err)
+	}
+	loaded, err := s2.LoadSourcePacks()
+	if err != nil {
+		t.Fatalf("LoadSourcePacks from fork: %v", err)
+	}
+	if len(loaded) != 2 || loaded[0].TX != "pack-1" {
+		t.Errorf("source packs from fork = %v, want [{pack-1} {pack-2}]", loaded)
+	}
+	sm, err := s2.LoadSourceManifest()
+	if err != nil || sm != "source-manifest-tx" {
+		t.Errorf("source manifest from fork = (%q, %v), want (source-manifest-tx, nil)", sm, err)
 	}
 }
 

@@ -25,9 +25,10 @@ const (
 )
 
 // State manages all local state stored under <gitDir>/arweave/.
-// Repo-wide files (applied-packs, encryption, readers) live in the root dir.
-// Per-remote files (pending, last-manifest, source-packs, genesis-manifest)
-// live in remoteDir when scoped via NewScoped.
+// Repo-wide files (applied-packs, encryption, readers, source-packs, source-manifest)
+// live in the root dir.
+// Per-remote files (pending, last-manifest, genesis-manifest) live in remoteDir
+// when scoped via NewScoped.
 type State struct {
 	dir       string // absolute path to <gitDir>/arweave/ — repo-wide files
 	remoteDir string // per-remote subdir, "" if unscoped
@@ -68,8 +69,7 @@ func NewScoped(gitDir, owner, repoName string) (*State, error) {
 func (s *State) migrate() error {
 	for _, name := range []string{
 		pendingJSONFile, pendingPackFile,
-		lastManifestFile, sourcePacksFile,
-		sourceManifestFile, genesisManifestFile,
+		lastManifestFile, genesisManifestFile,
 	} {
 		oldPath := filepath.Join(s.dir, name)
 		newPath := filepath.Join(s.remoteDir, name)
@@ -290,7 +290,9 @@ func (s *State) LoadLastManifestTxID() (string, error) {
 	return txID, err
 }
 
-// --- source packs (per-remote, for fork support) ---
+// --- source packs (repo-wide, for fork support) ---
+// Source packs are saved during fetch of one remote and consumed during push
+// to a different remote (the fork), so they must be repo-wide, not per-remote.
 
 // SaveSourcePacks stores the pack entries from a fetched manifest.
 // When pushing to a new repository (fork), these entries are included
@@ -301,13 +303,13 @@ func (s *State) SaveSourcePacks(packs []manifest.PackEntry) error {
 	if err != nil {
 		return fmt.Errorf("localstate: marshal source packs: %w", err)
 	}
-	return os.WriteFile(s.remoteFilePath(sourcePacksFile), data, 0o600)
+	return os.WriteFile(filepath.Join(s.dir, sourcePacksFile), data, 0o600)
 }
 
 // LoadSourcePacks returns the pack entries saved from a previous fetch.
 // Returns nil, nil if no source packs exist (not a fork scenario).
 func (s *State) LoadSourcePacks() ([]manifest.PackEntry, error) {
-	data, err := os.ReadFile(s.remoteFilePath(sourcePacksFile))
+	data, err := os.ReadFile(filepath.Join(s.dir, sourcePacksFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -324,7 +326,7 @@ func (s *State) LoadSourcePacks() ([]manifest.PackEntry, error) {
 // ClearSourcePacks removes the source packs file.
 // Called after the first fork push completes (packs are now in the manifest).
 func (s *State) ClearSourcePacks() error {
-	err := os.Remove(s.remoteFilePath(sourcePacksFile))
+	err := os.Remove(filepath.Join(s.dir, sourcePacksFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -334,12 +336,12 @@ func (s *State) ClearSourcePacks() error {
 // SaveSourceManifest stores the manifest tx-id from the source repository.
 // Used as the Forked-From tag value when pushing a fork genesis.
 func (s *State) SaveSourceManifest(txID string) error {
-	return os.WriteFile(s.remoteFilePath(sourceManifestFile), []byte(txID), 0o600)
+	return os.WriteFile(filepath.Join(s.dir, sourceManifestFile), []byte(txID), 0o600)
 }
 
 // LoadSourceManifest returns the source manifest tx-id, or "" if none.
 func (s *State) LoadSourceManifest() (string, error) {
-	data, err := os.ReadFile(s.remoteFilePath(sourceManifestFile))
+	data, err := os.ReadFile(filepath.Join(s.dir, sourceManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
@@ -351,7 +353,7 @@ func (s *State) LoadSourceManifest() (string, error) {
 
 // ClearSourceManifest removes the source manifest file.
 func (s *State) ClearSourceManifest() error {
-	err := os.Remove(s.remoteFilePath(sourceManifestFile))
+	err := os.Remove(filepath.Join(s.dir, sourceManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
