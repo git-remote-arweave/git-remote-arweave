@@ -47,7 +47,7 @@ func Push(
 	}
 
 	if input.Force {
-		return forcePush(ctx, uploader, repo, state, repoName, input)
+		return forcePush(ctx, ar, uploader, repo, state, cfg, repoName, input)
 	}
 
 	// 1. Resolve any pending push.
@@ -139,133 +139,42 @@ func Push(
 		return result, nil
 	}
 
-	// 7a. Encryption (private repos).
-	var ec *encryptionContext
-	visibility := ""
-	keymapTx := ""
-	epoch := 0
-	if cfg.IsPrivate() {
-		visibility = manifest.VisibilityPrivate
-		// Ensure owner is always in readers for consistency.
-		if _, err := state.AddReader(ar.Address(), ar.Owner()); err != nil {
-			return nil, fmt.Errorf("ops: ensure owner in readers: %w", err)
-		}
-		ec, err = initEncryption(state)
-		if err != nil {
-			return nil, fmt.Errorf("ops: init encryption: %w", err)
-		}
-		epoch = ec.epoch
-		packData, err = ec.encryptData(packData)
-		if err != nil {
-			return nil, fmt.Errorf("ops: encrypt pack: %w", err)
-		}
-	}
-
 	// 7b. Private→public conversion: upload open keymap so historical
 	// encrypted packs remain accessible to anyone.
+	var openKeymapTx string
 	if !cfg.IsPrivate() {
 		openKM, err := buildOpenKeyMap(state)
 		if err != nil {
 			return nil, fmt.Errorf("ops: build open keymap: %w", err)
 		}
 		if openKM != nil {
-			keymapTx, err = uploadOpenKeyMap(ctx, uploader, openKM, repoName)
+			openKeymapTx, err = uploadOpenKeyMap(ctx, uploader, openKM, repoName)
 			if err != nil {
 				return nil, fmt.Errorf("ops: upload open keymap: %w", err)
 			}
 		}
 	}
 
-	// 8. Upload pack.
+	// 8. Encrypt, upload pack+keymap+manifest, save pending.
 	baseSHA, tipSHA := tips[0].String(), tips[len(tips)-1].String()
 	if len(bases) > 0 {
 		baseSHA = bases[0].String()
 	}
-	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, baseSHA, tipSHA, visibility))
-	if err != nil {
-		return nil, fmt.Errorf("ops: upload pack: %w", err)
-	}
-
-	// 8a. Upload keymap if needed (private repos).
-	if ec != nil {
-		if ec.changed {
-			keymapTx, err = buildAndUploadKeyMap(ctx, uploader, state, repoName, ar.Owner(), ar.RSAPublicKey())
-			if err != nil {
-				return nil, fmt.Errorf("ops: upload keymap: %w", err)
-			}
-		} else {
-			keymapTx = ec.keymapTx
-		}
-	}
-
-	// 9. Build and upload manifest.
 	parentTx := effectiveParentTx(rs, res)
-	allPacks := append(effectivePacks, manifest.PackEntry{
-		TX:        packTxID,
-		Base:      baseSHA,
-		Tip:       tipSHA,
-		Size:      int64(len(packData)),
-		Epoch:     epoch,
-		Encrypted: ec != nil,
+
+	result, err := encryptAndUpload(ctx, ar, uploader, state, cfg, repoName, &uploadParams{
+		packData:      packData,
+		refs:          newRefs,
+		existingPacks: effectivePacks,
+		baseSHA:       baseSHA,
+		tipSHA:        tipSHA,
+		parentTx:      parentTx,
+		forkedFrom:    forkedFrom,
+		openKeymapTx:  openKeymapTx,
+		extensions:    extensions(rs),
 	})
-
-	var m *manifest.Manifest
-	if parentTx == "" {
-		m = manifest.NewGenesis()
-		m.Refs = newRefs
-		m.Packs = allPacks
-	} else {
-		ext := extensions(rs)
-		m = manifest.New(newRefs, allPacks, parentTx, ext)
-	}
-	m.KeyMap = keymapTx
-
-	manifestData, err := m.Marshal()
 	if err != nil {
-		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
-	}
-
-	// 9a. Encrypt manifest body (private repos).
-	if ec != nil {
-		manifestData, err = ec.encryptData(manifestData)
-		if err != nil {
-			return nil, fmt.Errorf("ops: encrypt manifest: %w", err)
-		}
-	}
-
-	genesisTx, _ := state.LoadGenesisManifest()
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(manifest.RefsTagsOpts{
-		RepoName:   repoName,
-		ParentTx:   parentTx,
-		Visibility: visibility,
-		KeyMapTx:   keymapTx,
-		ForkedFrom: forkedFrom,
-		GenesisTx:  genesisTx,
-		Encrypted:  ec != nil,
-	}))
-	if err != nil {
-		return nil, fmt.Errorf("ops: upload manifest: %w", err)
-	}
-
-	// 10. Save genesis tx-id on genesis push.
-	if parentTx == "" {
-		_ = state.SaveGenesisManifest(manifestTxID)
-	}
-
-	// 11. Save pending state.
-	pending := &localstate.PendingState{
-		PackTxID:     packTxID,
-		ManifestTxID: manifestTxID,
-		ParentTxID:   parentTx,
-		Refs:         newRefs,
-		Packs:        allPacks,
-		PackBase:     baseSHA,
-		PackTip:      tipSHA,
-		UploadedAt:   time.Now(),
-		Guaranteed:   uploader.Guaranteed(),
-	}
-	if err := state.SavePending(pending, packData); err != nil {
-		return nil, fmt.Errorf("ops: save pending: %w", err)
+		return nil, err
 	}
 
 	// Clean up source packs after successful fork push.
@@ -274,7 +183,7 @@ func Push(
 		_ = state.ClearSourceManifest()
 	}
 
-	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID, BytesUploaded: len(packData) + len(manifestData)}, nil
+	return result, nil
 }
 
 // forcePush creates a new genesis manifest with a full packfile,
@@ -282,17 +191,19 @@ func Push(
 // remain on Arweave but are superseded by the new genesis.
 func forcePush(
 	ctx context.Context,
+	ar *arweave.Client,
 	uploader arweave.Uploader,
 	repo *git.Repository,
 	state *localstate.State,
+	cfg *config.Config,
 	repoName string,
 	input *PushInput,
 ) (*PushResult, error) {
-	// Clear local state — start fresh. Reset last-manifest so that
-	// checkConflict accepts whatever remote state exists after the
-	// force push replaces the manifest chain.
+	// Clear local state — start fresh.
 	_ = state.ClearPending()
 	_ = state.SaveLastManifestTxID("")
+	_ = state.ClearSourcePacks()
+	_ = state.ClearSourceManifest()
 
 	// Collect tips (no bases — full pack).
 	var tips []plumbing.Hash
@@ -312,41 +223,142 @@ func forcePush(
 	}
 
 	tipSHA := tips[0].String()
-	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, "", tipSHA, ""))
+	return encryptAndUpload(ctx, ar, uploader, state, cfg, repoName, &uploadParams{
+		packData: packData,
+		refs:     input.RefUpdates,
+		tipSHA:   tipSHA,
+	})
+}
+
+// uploadParams describes what to upload after pack generation.
+type uploadParams struct {
+	packData      []byte
+	refs          map[string]string
+	existingPacks []manifest.PackEntry               // packs from previous manifests
+	baseSHA       string                              // "" for genesis/force
+	tipSHA        string
+	parentTx      string                              // "" for genesis/force
+	forkedFrom    string                              // source manifest tx for forks
+	openKeymapTx  string                              // private→public conversion keymap
+	extensions    map[string]json.RawMessage
+}
+
+// encryptAndUpload handles the common tail of both normal and force push:
+// encrypt pack → upload pack → upload keymap → build manifest → encrypt
+// manifest → upload manifest → save genesis → save pending.
+func encryptAndUpload(
+	ctx context.Context,
+	ar *arweave.Client,
+	uploader arweave.Uploader,
+	state *localstate.State,
+	cfg *config.Config,
+	repoName string,
+	p *uploadParams,
+) (*PushResult, error) {
+	packData := p.packData
+
+	// 1. Encryption (private repos).
+	var ec *encryptionContext
+	visibility := ""
+	keymapTx := p.openKeymapTx // may be set by private→public conversion
+	epoch := 0
+	if cfg.IsPrivate() {
+		visibility = manifest.VisibilityPrivate
+		if _, err := state.AddReader(ar.Address(), ar.Owner()); err != nil {
+			return nil, fmt.Errorf("ops: ensure owner in readers: %w", err)
+		}
+		var err error
+		ec, err = initEncryption(state)
+		if err != nil {
+			return nil, fmt.Errorf("ops: init encryption: %w", err)
+		}
+		epoch = ec.epoch
+		packData, err = ec.encryptData(packData)
+		if err != nil {
+			return nil, fmt.Errorf("ops: encrypt pack: %w", err)
+		}
+	}
+
+	// 2. Upload pack.
+	packTxID, err := uploader.Upload(ctx, packData, manifest.PackTags(repoName, p.baseSHA, p.tipSHA, visibility))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload pack: %w", err)
 	}
 
-	m := manifest.NewGenesis()
-	m.Refs = input.RefUpdates
-	m.Packs = []manifest.PackEntry{{
-		TX:   packTxID,
-		Base: "",
-		Tip:  tipSHA,
-		Size: int64(len(packData)),
-	}}
+	// 3. Upload keymap if needed (private repos).
+	if ec != nil {
+		if ec.changed {
+			keymapTx, err = buildAndUploadKeyMap(ctx, uploader, state, repoName, ar.Owner(), ar.RSAPublicKey())
+			if err != nil {
+				return nil, fmt.Errorf("ops: upload keymap: %w", err)
+			}
+		} else {
+			keymapTx = ec.keymapTx
+		}
+	}
+
+	// 4. Build manifest.
+	allPacks := append(p.existingPacks, manifest.PackEntry{
+		TX:        packTxID,
+		Base:      p.baseSHA,
+		Tip:       p.tipSHA,
+		Size:      int64(len(packData)),
+		Epoch:     epoch,
+		Encrypted: ec != nil,
+	})
+
+	var m *manifest.Manifest
+	if p.parentTx == "" {
+		m = manifest.NewGenesis()
+		m.Refs = p.refs
+		m.Packs = allPacks
+	} else {
+		m = manifest.New(p.refs, allPacks, p.parentTx, p.extensions)
+	}
+	m.KeyMap = keymapTx
 
 	manifestData, err := m.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
+	// 5. Encrypt manifest body (private repos).
+	if ec != nil {
+		manifestData, err = ec.encryptData(manifestData)
+		if err != nil {
+			return nil, fmt.Errorf("ops: encrypt manifest: %w", err)
+		}
+	}
+
+	// 6. Upload manifest.
+	genesisTx, _ := state.LoadGenesisManifest()
 	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(manifest.RefsTagsOpts{
-		RepoName: repoName,
+		RepoName:   repoName,
+		ParentTx:   p.parentTx,
+		Visibility: visibility,
+		KeyMapTx:   keymapTx,
+		ForkedFrom: p.forkedFrom,
+		GenesisTx:  genesisTx,
+		Encrypted:  ec != nil,
 	}))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
 
-	// Force push creates a new genesis — save its tx-id.
-	_ = state.SaveGenesisManifest(manifestTxID)
+	// 7. Save genesis tx-id on genesis push.
+	if p.parentTx == "" {
+		_ = state.SaveGenesisManifest(manifestTxID)
+	}
 
+	// 8. Save pending state.
 	pending := &localstate.PendingState{
 		PackTxID:     packTxID,
 		ManifestTxID: manifestTxID,
-		Refs:         input.RefUpdates,
-		Packs:        m.Packs,
-		PackTip:      tipSHA,
+		ParentTxID:   p.parentTx,
+		Refs:         p.refs,
+		Packs:        allPacks,
+		PackBase:     p.baseSHA,
+		PackTip:      p.tipSHA,
 		UploadedAt:   time.Now(),
 		Guaranteed:   uploader.Guaranteed(),
 	}
