@@ -2,12 +2,18 @@ package ops
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/permadao/goar"
 
+	"git-remote-arweave/internal/arweave"
+	"git-remote-arweave/internal/config"
 	"git-remote-arweave/internal/localstate"
 	"git-remote-arweave/internal/manifest"
 )
@@ -355,4 +361,73 @@ func newTestState(t *testing.T) *localstate.State {
 		t.Fatalf("localstate.New: %v", err)
 	}
 	return s
+}
+
+func TestPush_OwnerMismatch(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer := goar.NewSignerByPrivateKey(key)
+	w := goar.NewWalletWithSigner(signer, "https://arweave.net")
+	ar := arweave.NewWithWallet(w)
+
+	ctx := context.Background()
+	state := newTestState(t)
+	cfg := &config.Config{}
+
+	_, err = Push(ctx, ar, nil, nil, state, cfg, "wrong-owner-address", "repo", &PushInput{
+		RefUpdates: map[string]string{"refs/heads/main": "aaaa000000000000000000000000000000000000"},
+	})
+	if err == nil {
+		t.Fatal("Push should fail when wallet address doesn't match owner")
+	}
+	if !strings.Contains(err.Error(), "does not match remote owner") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPush_OwnerMatch(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer := goar.NewSignerByPrivateKey(key)
+	w := goar.NewWalletWithSigner(signer, "https://arweave.net")
+	ar := arweave.NewWithWallet(w)
+
+	ctx := context.Background()
+	state := newTestState(t)
+	cfg := &config.Config{}
+
+	// Push will fail or panic later (no GraphQL client), but should pass the owner check.
+	func() {
+		defer func() { _ = recover() }()
+		_, err = Push(ctx, ar, nil, nil, state, cfg, ar.Address(), "repo", &PushInput{
+			RefUpdates: map[string]string{"refs/heads/main": "aaaa000000000000000000000000000000000000"},
+		})
+	}()
+	// If we got an error (not a panic), verify it's not the owner mismatch.
+	if err != nil && strings.Contains(err.Error(), "does not match remote owner") {
+		t.Errorf("owner check should pass when addresses match: %v", err)
+	}
+}
+
+func TestPush_NoWalletSkipsCheck(t *testing.T) {
+	ar := arweave.NewWithWallet(nil)
+
+	ctx := context.Background()
+	state := newTestState(t)
+	cfg := &config.Config{}
+
+	func() {
+		defer func() { _ = recover() }()
+		_, err := Push(ctx, ar, nil, nil, state, cfg, "some-owner", "repo", &PushInput{
+			RefUpdates: map[string]string{"refs/heads/main": "aaaa000000000000000000000000000000000000"},
+		})
+		// Should not be an owner mismatch (wallet address is empty, check is skipped).
+		if err != nil && strings.Contains(err.Error(), "does not match remote owner") {
+			t.Errorf("owner check should be skipped without wallet: %v", err)
+		}
+	}()
 }

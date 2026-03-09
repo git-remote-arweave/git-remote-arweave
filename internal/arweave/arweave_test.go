@@ -1,11 +1,47 @@
 package arweave
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"strings"
 	"testing"
 
+	"github.com/permadao/goar"
+	"github.com/permadao/goar/utils"
+
 	"git-remote-arweave/internal/manifest"
 )
+
+func TestAddress(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer := goar.NewSignerByPrivateKey(key)
+	w := goar.NewWalletWithSigner(signer, "https://arweave.net")
+
+	c := &Client{wallet: w}
+
+	got := c.Address()
+	// Verify it matches sha256(N.Bytes()).
+	addr := sha256.Sum256(key.PublicKey.N.Bytes())
+	want := utils.Base64Encode(addr[:])
+	if got != want {
+		t.Errorf("Address() = %q, want %q", got, want)
+	}
+	// Address should differ from Owner (pubkey).
+	if got == c.Owner() {
+		t.Error("Address() should differ from Owner()")
+	}
+}
+
+func TestAddress_NilWallet(t *testing.T) {
+	c := &Client{}
+	if addr := c.Address(); addr != "" {
+		t.Errorf("Address() without wallet = %q, want empty", addr)
+	}
+}
 
 func TestIsLocal(t *testing.T) {
 	tests := []struct {

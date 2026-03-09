@@ -40,6 +40,12 @@ func Push(
 	owner, repoName string,
 	input *PushInput,
 ) (*PushResult, error) {
+	// Verify wallet identity matches the remote URL owner.
+	walletAddr := ar.Address()
+	if walletAddr != "" && owner != "" && walletAddr != owner {
+		return nil, fmt.Errorf("ops: wallet address %q does not match remote owner %q — check ARWEAVE_WALLET / arweave.wallet config", walletAddr, owner)
+	}
+
 	if input.Force {
 		return forcePush(ctx, uploader, repo, state, repoName, input)
 	}

@@ -115,6 +115,11 @@ func New(cfg *config.Config) (*Client, error) {
 	return c, nil
 }
 
+// NewWithWallet creates a Client with an explicit wallet. Intended for testing.
+func NewWithWallet(w *goar.Wallet) *Client {
+	return &Client{wallet: w}
+}
+
 // isLocal reports whether the gateway points to a loopback address (e.g. arlocal).
 func (c *Client) isLocal() bool {
 	u, err := url.Parse(c.gateway)
@@ -129,12 +134,23 @@ func (c *Client) isLocal() bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// Owner returns the wallet address. Empty string if no wallet is configured.
+// Owner returns the wallet's base64url-encoded public key (the "owner" field
+// in Arweave transactions). Empty string if no wallet is configured.
 func (c *Client) Owner() string {
 	if c.wallet == nil {
 		return ""
 	}
 	return c.wallet.Owner()
+}
+
+// Address returns the wallet address (base64url SHA-256 of the public key).
+// This is the short identifier used in arweave:// URLs and GraphQL queries.
+// Empty string if no wallet is configured.
+func (c *Client) Address() string {
+	if c.wallet == nil || c.wallet.Signer == nil {
+		return ""
+	}
+	return c.wallet.Signer.Address
 }
 
 // RSAPublicKey returns the wallet's RSA public key, or nil if no wallet.
