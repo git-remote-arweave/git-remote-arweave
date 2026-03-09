@@ -71,13 +71,16 @@ VERSION="$(git describe --tags --always 2>/dev/null || echo unknown)"
 
 info "Building..."
 go build -ldflags "-X main.version=${VERSION}" -o git-remote-arweave ./cmd/git-remote-arweave/
+go build -o arweave-git ./cmd/arweave-git/
 
 # 3. Install
 mkdir -p "$INSTALL_DIR"
 mv git-remote-arweave "${INSTALL_DIR}/git-remote-arweave"
-chmod 755 "${INSTALL_DIR}/git-remote-arweave"
+mv arweave-git "${INSTALL_DIR}/arweave-git"
+chmod 755 "${INSTALL_DIR}/git-remote-arweave" "${INSTALL_DIR}/arweave-git"
 
 info "Installed: ${INSTALL_DIR}/git-remote-arweave"
+info "Installed: ${INSTALL_DIR}/arweave-git"
 
 # 4. Check PATH
 case ":${PATH}:" in

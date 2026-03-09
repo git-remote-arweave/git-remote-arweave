@@ -20,6 +20,8 @@ func main() {
 	switch os.Args[1] {
 	case "env":
 		cmdEnv()
+	case "status":
+		cmdStatus(os.Args[2:])
 	case "readers":
 		cmdReaders(os.Args[2:])
 	default:
@@ -175,6 +177,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "commands:")
 	fmt.Fprintln(os.Stderr, "  env                                   show resolved config and sources")
+	fmt.Fprintln(os.Stderr, "  status [--all]                        show transaction settlement status")
 	fmt.Fprintln(os.Stderr, "  readers add <address> [--pubkey <n>]  add a reader wallet")
 	fmt.Fprintln(os.Stderr, "  readers remove <address>              remove a reader wallet")
 	fmt.Fprintln(os.Stderr, "  readers list                          list reader wallets")

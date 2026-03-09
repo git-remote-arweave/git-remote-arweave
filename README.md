@@ -242,6 +242,22 @@ git push origin main
 
 After pushing, you'll see a message with the transaction IDs. The data becomes globally visible once the transactions confirm (typically a few minutes).
 
+### Check transaction status
+
+```sh
+arweave-git status
+```
+
+Shows the settlement status of all Arweave transactions for this repository. For each manifest, pack, and keymap transaction, checks:
+
+- **GW** -- data available via the main gateway (arweave.net) HEAD request
+- **CDN** -- data available via Turbo CDN (shown only when using Turbo payment)
+- **GQL** -- transaction indexed in GraphQL (fully settled on L1)
+
+By default shows the latest 10 manifests. Use `--all` to show the full chain.
+
+Bundled data items (Turbo uploads) may show GW:✗ even when GQL:✓ -- this is normal. The data is permanently stored in ANS-104 bundles on L1, but arweave.net does not always cache individual data items for direct access. The Turbo CDN serves them reliably.
+
 ## Limitations
 
 - **No deletion.** Data on Arweave is permanent. Force-push orphans old data but cannot erase it.
@@ -253,7 +269,8 @@ After pushing, you'll see a message with the transaction IDs. The data becomes g
 
 ```
 cmd/
-  git-remote-arweave/    # remote helper entry point
+  git-remote-arweave/    # remote helper entry point (invoked by git)
+  arweave-git/           # companion CLI (status, readers, env)
 internal/
   config/                # configuration loading
   crypto/                # encryption (NaCl secretbox, RSA-OAEP key wrapping, keymap)

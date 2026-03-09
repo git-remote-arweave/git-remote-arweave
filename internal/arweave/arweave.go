@@ -177,6 +177,26 @@ func (c *Client) RSAPrivateKey() *rsa.PrivateKey {
 // Guaranteed implements Uploader. L1 transactions can be dropped from mempool.
 func (c *Client) Guaranteed() bool { return false }
 
+// Gateway returns the L1 gateway URL (used for GraphQL and status checks).
+func (c *Client) Gateway() string { return c.gateway }
+
+// FetchGateway returns the data download gateway URL (Turbo CDN or same as Gateway).
+func (c *Client) FetchGateway() string { return c.fetchGateway }
+
+// HeadTx checks if transaction data is available at baseURL/{txID} via HEAD.
+func (c *Client) HeadTx(ctx context.Context, baseURL, txID string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, baseURL+"/"+txID, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // Upload signs and submits a data transaction to Arweave.
 // Requires a wallet to be configured.
 func (c *Client) Upload(ctx context.Context, data []byte, tags []manifest.Tag) (string, error) {
@@ -296,6 +316,99 @@ func (c *Client) RepoExists(ctx context.Context, owner, repoName string) (bool, 
 	}
 	id, err := parseFirstTxID(body)
 	return id != "", err
+}
+
+// QueryManifestChain returns the ordered manifest chain (head → genesis)
+// for the given repository. Uses the same paginated GraphQL approach as
+// QueryLatestManifest, then walks Parent-Tx links from the chain head.
+func (c *Client) QueryManifestChain(ctx context.Context, owner, repoName string) ([]ManifestInfo, error) {
+	const pageSize = 50
+
+	var all []gqlNode
+	var cursor string
+	for {
+		query := buildManifestPageQuery(owner, repoName, pageSize, cursor)
+		body, err := withRetry(ctx, 3, func() ([]byte, error) {
+			return c.goarClient.GraphQL(query)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("arweave: graphql failed: %w", err)
+		}
+		page, err := parseManifestPage(body)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.nodes...)
+		if !page.hasNextPage || len(page.nodes) == 0 {
+			break
+		}
+		cursor = page.nodes[len(page.nodes)-1].cursor
+	}
+
+	if len(all) == 0 {
+		return nil, nil
+	}
+
+	head := findChainHead(all)
+
+	// Build chain from head → genesis using Parent-Tx links.
+	byID := make(map[string]*gqlNode, len(all))
+	for i := range all {
+		byID[all[i].id] = &all[i]
+	}
+
+	var chain []ManifestInfo
+	cur := byID[head.TxID]
+	for cur != nil {
+		chain = append(chain, ManifestInfo{
+			TxID:      cur.id,
+			ParentTx:  cur.parentTx,
+			IsGenesis: cur.isGenesis,
+			KeyMapTx:  cur.keymapTx,
+			Encrypted: cur.encrypted,
+		})
+		if cur.parentTx == "" {
+			break
+		}
+		cur = byID[cur.parentTx]
+	}
+
+	return chain, nil
+}
+
+// QueryTxExistence checks which of the given tx-ids are indexed in GraphQL.
+// Returns a map where present IDs map to true.
+func (c *Client) QueryTxExistence(ctx context.Context, txIDs []string) (map[string]bool, error) {
+	if len(txIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+	quoted := make([]string, len(txIDs))
+	for i, id := range txIDs {
+		quoted[i] = fmt.Sprintf("%q", id)
+	}
+	query := fmt.Sprintf(`{
+  transactions(ids: [%s], first: %d) {
+    edges { node { id } }
+  }
+}`, strings.Join(quoted, ", "), len(txIDs))
+
+	body, err := withRetry(ctx, 3, func() ([]byte, error) {
+		return c.goarClient.GraphQL(query)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("arweave: graphql query tx existence: %w", err)
+	}
+
+	var resp gqlResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("arweave: parse tx existence response: %w", err)
+	}
+
+	result := make(map[string]bool, len(txIDs))
+	for _, edge := range resp.Transactions.Edges {
+		result[edge.Node.ID] = true
+	}
+	return result, nil
 }
 
 // --- GraphQL query builders ---
