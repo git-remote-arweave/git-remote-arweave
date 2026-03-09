@@ -124,6 +124,62 @@ func (c *Config) RequireWallet() error {
 	return nil
 }
 
+// Source describes where a configuration value came from.
+type Source string
+
+const (
+	SourceEnv       Source = "env"
+	SourceLocal     Source = "local gitconfig"
+	SourceGlobal    Source = "global gitconfig"
+	SourceSystem    Source = "system gitconfig"
+	SourceDefault   Source = "default"
+	SourceUnset     Source = ""
+)
+
+// Entry is a resolved configuration value with its source.
+type Entry struct {
+	Key     string // display key (env var or git config key)
+	Value   string
+	Source  Source
+}
+
+// Env returns all configuration entries with their resolved sources.
+// This is intended for the "arweave-git env" diagnostic command.
+func Env() []Entry {
+	type configDef struct {
+		envKey    string
+		gitKey    string
+		defaultV  string
+	}
+	defs := []configDef{
+		{"ARWEAVE_WALLET", "arweave.wallet", ""},
+		{"ARWEAVE_GATEWAY", "arweave.gateway", DefaultGateway},
+		{"ARWEAVE_PAYMENT", "arweave.payment", PaymentTurbo},
+		{"ARWEAVE_TURBO_GATEWAY", "arweave.turboGateway", DefaultTurboGateway},
+		{"ARWEAVE_VISIBILITY", "arweave.visibility", ""},
+		{"ARWEAVE_DROP_TIMEOUT", "arweave.dropTimeout", DefaultDropTimeout.String()},
+	}
+
+	var entries []Entry
+	for _, d := range defs {
+		e := Entry{Key: d.gitKey}
+		if v := os.Getenv(d.envKey); v != "" {
+			e.Value = v
+			e.Source = SourceEnv
+		} else if v, src := gitConfigOrigin(d.gitKey); v != "" {
+			e.Value = v
+			e.Source = src
+		} else if d.defaultV != "" {
+			e.Value = d.defaultV
+			e.Source = SourceDefault
+		} else {
+			e.Source = SourceUnset
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}
+
 // gitConfig reads a single git config value by key.
 // Returns empty string if the key is not set or git is unavailable.
 func gitConfig(key string) string {
@@ -132,4 +188,31 @@ func gitConfig(key string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// gitConfigOrigin reads a git config value and determines whether it
+// comes from local, global, or system scope.
+func gitConfigOrigin(key string) (string, Source) {
+	// --show-origin prints the source file before the value.
+	// --show-scope (git 2.26+) prints "local", "global", or "system".
+	out, err := exec.Command("git", "config", "--show-scope", "--get", key).Output()
+	if err != nil {
+		return "", ""
+	}
+	line := strings.TrimSpace(string(out))
+	// Format: "local\t<value>" or "global\t<value>"
+	scope, val, ok := strings.Cut(line, "\t")
+	if !ok {
+		return line, SourceLocal // fallback
+	}
+	switch scope {
+	case "local":
+		return val, SourceLocal
+	case "global":
+		return val, SourceGlobal
+	case "system":
+		return val, SourceSystem
+	default:
+		return val, Source(scope + " gitconfig")
+	}
 }

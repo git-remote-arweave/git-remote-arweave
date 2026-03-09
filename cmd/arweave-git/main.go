@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"git-remote-arweave/internal/config"
 	"git-remote-arweave/internal/localstate"
 )
 
@@ -15,10 +16,23 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "env":
+		cmdEnv()
 	case "readers":
 		cmdReaders(os.Args[2:])
 	default:
 		fatalf("unknown command: %s", os.Args[1])
+	}
+}
+
+func cmdEnv() {
+	entries := config.Env()
+	for _, e := range entries {
+		if e.Source == config.SourceUnset {
+			fmt.Printf("%-25s (not set)\n", e.Key)
+		} else {
+			fmt.Printf("%-25s %s\t(%s)\n", e.Key, e.Value, e.Source)
+		}
 	}
 }
 
@@ -130,6 +144,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: arweave-git <command> [args]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "commands:")
+	fmt.Fprintln(os.Stderr, "  env                                   show resolved config and sources")
 	fmt.Fprintln(os.Stderr, "  readers add <address> [--pubkey <n>]  add a reader wallet")
 	fmt.Fprintln(os.Stderr, "  readers remove <address>              remove a reader wallet")
 	fmt.Fprintln(os.Stderr, "  readers list                          list reader wallets")
