@@ -477,6 +477,12 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 
 // --- Retry logic for transient gateway errors ---
 
+// IsTransient reports whether err indicates a transient gateway problem
+// (502, 503, 504) that may resolve on retry.
+func IsTransient(err error) bool {
+	return isTransientError(err)
+}
+
 // isTransientError checks whether an error or HTTP status indicates a
 // transient gateway problem (502, 503, 504) worth retrying.
 func isTransientError(err error) bool {

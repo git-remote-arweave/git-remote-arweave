@@ -150,8 +150,12 @@ func (h *handler) cmdList() error {
 				// This is expected — use pending refs, no warning needed.
 				fmt.Fprintf(os.Stderr, "arweave: pending manifest %s not yet settled\n", mfe.TxID)
 				rs = &ops.RemoteState{}
+			} else if arweave.IsTransient(mfe.Err) {
+				// Transient gateway error (502/503/504) — abort rather
+				// than continuing with empty state which misleads the user.
+				return fmt.Errorf("arweave: manifest %s temporarily unavailable (gateway error), try again later", mfe.TxID)
 			} else {
-				// Genuinely unreadable remote state.
+				// Genuinely unreadable remote state (e.g. corrupt data, 404).
 				fmt.Fprintf(os.Stderr, "arweave: warning: %v\n", err)
 				fmt.Fprintf(os.Stderr, "arweave: remote state unreadable; use git push --force to overwrite\n")
 				rs = &ops.RemoteState{}
