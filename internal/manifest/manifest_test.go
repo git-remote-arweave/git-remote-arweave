@@ -95,32 +95,45 @@ func TestParseRejectsUnknownVersion(t *testing.T) {
 }
 
 func TestRefsTags(t *testing.T) {
-	tags := RefsTags("my-repo", "", "", "", "", false)
+	tags := RefsTags(RefsTagsOpts{RepoName: "my-repo"})
 	assertTag(t, tags, TagGenesis, "true")
 	assertNoTag(t, tags, TagParentTx)
 	assertNoTag(t, tags, TagVisibility)
 	assertNoTag(t, tags, TagKeyMap)
 	assertNoTag(t, tags, TagEncrypted)
 	assertNoTag(t, tags, TagForkedFrom)
+	assertNoTag(t, tags, TagGenesisTx)
 
-	tags = RefsTags("my-repo", "parent-tx", "", "", "", false)
+	tags = RefsTags(RefsTagsOpts{RepoName: "my-repo", ParentTx: "parent-tx"})
 	assertTag(t, tags, TagParentTx, "parent-tx")
 	assertNoTag(t, tags, TagGenesis)
 
-	tags = RefsTags("my-repo", "", VisibilityPrivate, "km-tx-123", "", true)
+	tags = RefsTags(RefsTagsOpts{RepoName: "my-repo", Visibility: VisibilityPrivate, KeyMapTx: "km-tx-123", Encrypted: true})
 	assertTag(t, tags, TagVisibility, VisibilityPrivate)
 	assertTag(t, tags, TagKeyMap, "km-tx-123")
 	assertTag(t, tags, TagEncrypted, "true")
 }
 
 func TestRefsTagsForkedFrom(t *testing.T) {
-	tags := RefsTags("my-repo", "", "", "", "source-manifest-tx", false)
+	tags := RefsTags(RefsTagsOpts{RepoName: "my-repo", ForkedFrom: "source-manifest-tx"})
 	assertTag(t, tags, TagGenesis, "true")
 	assertTag(t, tags, TagForkedFrom, "source-manifest-tx")
 
 	// Non-genesis with forkedFrom should still include it.
-	tags = RefsTags("my-repo", "parent-tx", "", "", "source-manifest-tx", false)
+	tags = RefsTags(RefsTagsOpts{RepoName: "my-repo", ParentTx: "parent-tx", ForkedFrom: "source-manifest-tx"})
 	assertTag(t, tags, TagForkedFrom, "source-manifest-tx")
+	assertNoTag(t, tags, TagGenesis)
+}
+
+func TestRefsTagsGenesisTx(t *testing.T) {
+	// Genesis manifest should not include Genesis-Tx (it IS the genesis).
+	tags := RefsTags(RefsTagsOpts{RepoName: "my-repo", GenesisTx: "gen-tx-123"})
+	assertNoTag(t, tags, TagGenesisTx)
+	assertTag(t, tags, TagGenesis, "true")
+
+	// Non-genesis with GenesisTx should include it.
+	tags = RefsTags(RefsTagsOpts{RepoName: "my-repo", ParentTx: "parent-tx", GenesisTx: "gen-tx-123"})
+	assertTag(t, tags, TagGenesisTx, "gen-tx-123")
 	assertNoTag(t, tags, TagGenesis)
 }
 

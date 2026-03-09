@@ -111,32 +111,45 @@ func Parse(data []byte) (*Manifest, error) {
 	return &m, nil
 }
 
+// RefsTagsOpts configures the tags for a ref manifest transaction.
+type RefsTagsOpts struct {
+	RepoName   string
+	ParentTx   string
+	Visibility string
+	KeyMapTx   string
+	ForkedFrom string
+	GenesisTx  string
+	Encrypted  bool
+}
+
 // RefsTags returns the Arweave transaction tags for a ref manifest transaction.
-// For private repos, pass visibility = VisibilityPrivate and keymapTx = keymap tx-id.
-func RefsTags(repoName, parentTx, visibility, keymapTx, forkedFrom string, encrypted bool) []Tag {
+func RefsTags(opts RefsTagsOpts) []Tag {
 	tags := []Tag{
 		{TagAppName, AppName},
 		{TagProtocolVersion, ProtocolVersion},
 		{TagType, TypeRefs},
-		{TagRepoName, repoName},
+		{TagRepoName, opts.RepoName},
 		{TagTimestamp, strconv.FormatInt(time.Now().Unix(), 10)},
 	}
-	if parentTx == "" {
+	if opts.ParentTx == "" {
 		tags = append(tags, Tag{TagGenesis, "true"})
 	} else {
-		tags = append(tags, Tag{TagParentTx, parentTx})
+		tags = append(tags, Tag{TagParentTx, opts.ParentTx})
 	}
-	if visibility == VisibilityPrivate {
+	if opts.Visibility == VisibilityPrivate {
 		tags = append(tags, Tag{TagVisibility, VisibilityPrivate})
 	}
-	if keymapTx != "" {
-		tags = append(tags, Tag{TagKeyMap, keymapTx})
+	if opts.KeyMapTx != "" {
+		tags = append(tags, Tag{TagKeyMap, opts.KeyMapTx})
 	}
-	if encrypted {
+	if opts.Encrypted {
 		tags = append(tags, Tag{TagEncrypted, "true"})
 	}
-	if forkedFrom != "" {
-		tags = append(tags, Tag{TagForkedFrom, forkedFrom})
+	if opts.ForkedFrom != "" {
+		tags = append(tags, Tag{TagForkedFrom, opts.ForkedFrom})
+	}
+	if opts.GenesisTx != "" && opts.ParentTx != "" {
+		tags = append(tags, Tag{TagGenesisTx, opts.GenesisTx})
 	}
 	return tags
 }

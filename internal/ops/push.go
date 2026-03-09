@@ -229,13 +229,16 @@ func Push(
 		}
 	}
 
-	tags := manifest.RefsTags(repoName, parentTx, visibility, keymapTx, forkedFrom, ec != nil)
-	if parentTx != "" {
-		if genTx, _ := state.LoadGenesisManifest(); genTx != "" {
-			tags = append(tags, manifest.Tag{Name: manifest.TagGenesisTx, Value: genTx})
-		}
-	}
-	manifestTxID, err := uploader.Upload(ctx, manifestData, tags)
+	genesisTx, _ := state.LoadGenesisManifest()
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(manifest.RefsTagsOpts{
+		RepoName:   repoName,
+		ParentTx:   parentTx,
+		Visibility: visibility,
+		KeyMapTx:   keymapTx,
+		ForkedFrom: forkedFrom,
+		GenesisTx:  genesisTx,
+		Encrypted:  ec != nil,
+	}))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -324,7 +327,9 @@ func forcePush(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, "", "", "", "", false))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(manifest.RefsTagsOpts{
+		RepoName: repoName,
+	}))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -613,13 +618,13 @@ func uploadManifestOnly(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	tags := manifest.RefsTags(repoName, parentTx, "", "", forkedFrom, false)
-	if parentTx != "" {
-		if genTx, _ := state.LoadGenesisManifest(); genTx != "" {
-			tags = append(tags, manifest.Tag{Name: manifest.TagGenesisTx, Value: genTx})
-		}
-	}
-	manifestTxID, err := uploader.Upload(ctx, manifestData, tags)
+	genesisTx, _ := state.LoadGenesisManifest()
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(manifest.RefsTagsOpts{
+		RepoName:   repoName,
+		ParentTx:   parentTx,
+		ForkedFrom: forkedFrom,
+		GenesisTx:  genesisTx,
+	}))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
