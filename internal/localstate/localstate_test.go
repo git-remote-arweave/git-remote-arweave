@@ -216,6 +216,34 @@ func TestLastManifestWithParent(t *testing.T) {
 	}
 }
 
+func TestSourceManifest(t *testing.T) {
+	s := newTestState(t)
+
+	// empty initially
+	txID, err := s.LoadSourceManifest()
+	if err != nil || txID != "" {
+		t.Errorf("LoadSourceManifest on empty: got (%q, %v), want (\"\", nil)", txID, err)
+	}
+
+	if err := s.SaveSourceManifest("source-tx-1"); err != nil {
+		t.Fatalf("SaveSourceManifest: %v", err)
+	}
+
+	txID, err = s.LoadSourceManifest()
+	if err != nil || txID != "source-tx-1" {
+		t.Errorf("LoadSourceManifest: got (%q, %v), want (source-tx-1, nil)", txID, err)
+	}
+
+	if err := s.ClearSourceManifest(); err != nil {
+		t.Fatalf("ClearSourceManifest: %v", err)
+	}
+
+	txID, err = s.LoadSourceManifest()
+	if err != nil || txID != "" {
+		t.Errorf("after clear: got (%q, %v), want (\"\", nil)", txID, err)
+	}
+}
+
 func TestLastManifestLegacyFormat(t *testing.T) {
 	s := newTestState(t)
 

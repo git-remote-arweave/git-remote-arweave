@@ -95,21 +95,33 @@ func TestParseRejectsUnknownVersion(t *testing.T) {
 }
 
 func TestRefsTags(t *testing.T) {
-	tags := RefsTags("my-repo", "", "", "", false)
+	tags := RefsTags("my-repo", "", "", "", "", false)
 	assertTag(t, tags, TagGenesis, "true")
 	assertNoTag(t, tags, TagParentTx)
 	assertNoTag(t, tags, TagVisibility)
 	assertNoTag(t, tags, TagKeyMap)
 	assertNoTag(t, tags, TagEncrypted)
+	assertNoTag(t, tags, TagForkedFrom)
 
-	tags = RefsTags("my-repo", "parent-tx", "", "", false)
+	tags = RefsTags("my-repo", "parent-tx", "", "", "", false)
 	assertTag(t, tags, TagParentTx, "parent-tx")
 	assertNoTag(t, tags, TagGenesis)
 
-	tags = RefsTags("my-repo", "", VisibilityPrivate, "km-tx-123", true)
+	tags = RefsTags("my-repo", "", VisibilityPrivate, "km-tx-123", "", true)
 	assertTag(t, tags, TagVisibility, VisibilityPrivate)
 	assertTag(t, tags, TagKeyMap, "km-tx-123")
 	assertTag(t, tags, TagEncrypted, "true")
+}
+
+func TestRefsTagsForkedFrom(t *testing.T) {
+	tags := RefsTags("my-repo", "", "", "", "source-manifest-tx", false)
+	assertTag(t, tags, TagGenesis, "true")
+	assertTag(t, tags, TagForkedFrom, "source-manifest-tx")
+
+	// Non-genesis with forkedFrom should still include it.
+	tags = RefsTags("my-repo", "parent-tx", "", "", "source-manifest-tx", false)
+	assertTag(t, tags, TagForkedFrom, "source-manifest-tx")
+	assertNoTag(t, tags, TagGenesis)
 }
 
 func TestPackTags(t *testing.T) {

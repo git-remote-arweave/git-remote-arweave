@@ -33,6 +33,7 @@ const (
 	TagVisibility  = "Visibility"
 	TagKeyMap      = "Key-Map"
 	TagEncrypted   = "Encrypted"
+	TagForkedFrom  = "Forked-From"
 )
 
 // Tag is a key-value pair for an Arweave transaction tag.
@@ -111,7 +112,7 @@ func Parse(data []byte) (*Manifest, error) {
 
 // RefsTags returns the Arweave transaction tags for a ref manifest transaction.
 // For private repos, pass visibility = VisibilityPrivate and keymapTx = keymap tx-id.
-func RefsTags(repoName, parentTx, visibility, keymapTx string, encrypted bool) []Tag {
+func RefsTags(repoName, parentTx, visibility, keymapTx, forkedFrom string, encrypted bool) []Tag {
 	tags := []Tag{
 		{TagAppName, AppName},
 		{TagProtocolVersion, ProtocolVersion},
@@ -132,6 +133,9 @@ func RefsTags(repoName, parentTx, visibility, keymapTx string, encrypted bool) [
 	}
 	if encrypted {
 		tags = append(tags, Tag{TagEncrypted, "true"})
+	}
+	if forkedFrom != "" {
+		tags = append(tags, Tag{TagForkedFrom, forkedFrom})
 	}
 	return tags
 }

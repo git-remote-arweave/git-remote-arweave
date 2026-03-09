@@ -366,7 +366,7 @@ func TestFetchOnce_Error(t *testing.T) {
 func TestQueryOwnerKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// goar unwraps "data" field, so we must wrap the response.
-		w.Write([]byte(`{"data":{"transactions":{"edges":[{"node":{"owner":{"key":"RSA-MODULUS-BASE64"}}}]}}}`))
+		_, _ = w.Write([]byte(`{"data":{"transactions":{"edges":[{"node":{"owner":{"key":"RSA-MODULUS-BASE64"}}}]}}}`))
 	}))
 	defer srv.Close()
 
@@ -388,7 +388,7 @@ func TestQueryOwnerKey(t *testing.T) {
 
 func TestQueryOwnerKey_NoTransactions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":{"transactions":{"edges":[]}}}`))
+		_, _ = w.Write([]byte(`{"data":{"transactions":{"edges":[]}}}`))
 	}))
 	defer srv.Close()
 

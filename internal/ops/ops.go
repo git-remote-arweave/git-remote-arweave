@@ -77,6 +77,11 @@ func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName st
 	return &RemoteState{manifestTxID: info.TxID, m: m}, nil
 }
 
+// ManifestTxID returns the tx-id of the latest remote manifest, or "" if none.
+func (rs *RemoteState) ManifestTxID() string {
+	return rs.manifestTxID
+}
+
 // Packs returns the pack entries from the remote manifest, or nil if no manifest.
 func (rs *RemoteState) Packs() []manifest.PackEntry {
 	if rs.m == nil {

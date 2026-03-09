@@ -90,6 +90,7 @@ func Push(
 	// packs from a previous fetch, include them so the fork reuses
 	// existing Arweave data instead of re-uploading.
 	var sourcePacks []manifest.PackEntry
+	var forkedFrom string
 	if rs.m == nil && len(effectivePacks) == 0 {
 		sp, err := state.LoadSourcePacks()
 		if err != nil {
@@ -98,6 +99,7 @@ func Push(
 		if len(sp) > 0 {
 			sourcePacks = sp
 			effectivePacks = sp
+			forkedFrom, _ = state.LoadSourceManifest()
 		}
 	}
 
@@ -116,7 +118,7 @@ func Push(
 	}
 	if len(tips) == 0 {
 		// Ref-only update (e.g., delete). No new objects to upload.
-		return uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks)
+		return uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks, forkedFrom)
 	}
 
 	// 7. Generate packfile.
@@ -126,12 +128,13 @@ func Push(
 	}
 	if packData == nil {
 		// No new objects (e.g., fork with no changes). Upload manifest only.
-		result, err := uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks)
+		result, err := uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks, forkedFrom)
 		if err != nil {
 			return nil, err
 		}
 		if len(sourcePacks) > 0 {
 			_ = state.ClearSourcePacks()
+			_ = state.ClearSourceManifest()
 		}
 		return result, nil
 	}
@@ -226,7 +229,7 @@ func Push(
 		}
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, visibility, keymapTx, ec != nil))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, visibility, keymapTx, forkedFrom, ec != nil))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -250,6 +253,7 @@ func Push(
 	// Clean up source packs after successful fork push.
 	if len(sourcePacks) > 0 {
 		_ = state.ClearSourcePacks()
+		_ = state.ClearSourceManifest()
 	}
 
 	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID, BytesUploaded: len(packData) + len(manifestData)}, nil
@@ -309,7 +313,7 @@ func forcePush(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, "", "", "", false))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, "", "", "", "", false))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}
@@ -577,6 +581,7 @@ func uploadManifestOnly(
 	res *pendingResolution,
 	newRefs map[string]string,
 	packs []manifest.PackEntry,
+	forkedFrom string,
 ) (*PushResult, error) {
 	parentTx := effectiveParentTx(rs, res)
 
@@ -594,7 +599,7 @@ func uploadManifestOnly(
 		return nil, fmt.Errorf("ops: marshal manifest: %w", err)
 	}
 
-	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, "", "", false))
+	manifestTxID, err := uploader.Upload(ctx, manifestData, manifest.RefsTags(repoName, parentTx, "", "", forkedFrom, false))
 	if err != nil {
 		return nil, fmt.Errorf("ops: upload manifest: %w", err)
 	}

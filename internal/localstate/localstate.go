@@ -19,7 +19,8 @@ const (
 	pendingJSONFile  = "pending.json"
 	pendingPackFile  = "pending.pack"
 	lastManifestFile = "last-manifest"
-	sourcePacksFile  = "source-packs.json"
+	sourcePacksFile    = "source-packs.json"
+	sourceManifestFile = "source-manifest"
 )
 
 // State manages all local state stored under <gitDir>/arweave/.
@@ -267,6 +268,33 @@ func (s *State) LoadSourcePacks() ([]manifest.PackEntry, error) {
 // Called after the first fork push completes (packs are now in the manifest).
 func (s *State) ClearSourcePacks() error {
 	err := os.Remove(filepath.Join(s.dir, sourcePacksFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// SaveSourceManifest stores the manifest tx-id from the source repository.
+// Used as the Forked-From tag value when pushing a fork genesis.
+func (s *State) SaveSourceManifest(txID string) error {
+	return os.WriteFile(filepath.Join(s.dir, sourceManifestFile), []byte(txID), 0o600)
+}
+
+// LoadSourceManifest returns the source manifest tx-id, or "" if none.
+func (s *State) LoadSourceManifest() (string, error) {
+	data, err := os.ReadFile(filepath.Join(s.dir, sourceManifestFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("localstate: read source-manifest: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// ClearSourceManifest removes the source manifest file.
+func (s *State) ClearSourceManifest() error {
+	err := os.Remove(filepath.Join(s.dir, sourceManifestFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

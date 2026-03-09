@@ -166,10 +166,14 @@ func (h *handler) cmdList() error {
 	}
 	h.remoteState = rs
 
-	// Save pack entries for fork support. When this repo is later pushed
-	// to a different wallet, the genesis manifest can reference these packs.
+	// Save pack entries and manifest tx-id for fork support. When this repo
+	// is later pushed to a different wallet, the genesis manifest can reference
+	// these packs and include a Forked-From tag.
 	if packs := rs.Packs(); len(packs) > 0 {
 		_ = h.state.SaveSourcePacks(packs)
+		if txID := rs.ManifestTxID(); txID != "" {
+			_ = h.state.SaveSourceManifest(txID)
+		}
 	}
 
 	refs := ops.ListRefs(rs, pending)
