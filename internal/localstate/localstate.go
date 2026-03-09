@@ -19,6 +19,7 @@ const (
 	pendingJSONFile  = "pending.json"
 	pendingPackFile  = "pending.pack"
 	lastManifestFile = "last-manifest"
+	sourcePacksFile  = "source-packs.json"
 )
 
 // State manages all local state stored under <gitDir>/arweave/.
@@ -212,4 +213,45 @@ func (s *State) LoadLastManifestTxID() (string, error) {
 		return "", fmt.Errorf("localstate: read last-manifest: %w", err)
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+// --- source packs (for fork support) ---
+
+// SaveSourcePacks stores the pack entries from a fetched manifest.
+// When pushing to a new repository (fork), these entries are included
+// in the genesis manifest so the fork reuses existing Arweave data
+// instead of re-uploading everything.
+func (s *State) SaveSourcePacks(packs []manifest.PackEntry) error {
+	data, err := json.Marshal(packs)
+	if err != nil {
+		return fmt.Errorf("localstate: marshal source packs: %w", err)
+	}
+	return os.WriteFile(filepath.Join(s.dir, sourcePacksFile), data, 0o600)
+}
+
+// LoadSourcePacks returns the pack entries saved from a previous fetch.
+// Returns nil, nil if no source packs exist (not a fork scenario).
+func (s *State) LoadSourcePacks() ([]manifest.PackEntry, error) {
+	data, err := os.ReadFile(filepath.Join(s.dir, sourcePacksFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("localstate: read source packs: %w", err)
+	}
+	var packs []manifest.PackEntry
+	if err := json.Unmarshal(data, &packs); err != nil {
+		return nil, fmt.Errorf("localstate: parse source packs: %w", err)
+	}
+	return packs, nil
+}
+
+// ClearSourcePacks removes the source packs file.
+// Called after the first fork push completes (packs are now in the manifest).
+func (s *State) ClearSourcePacks() error {
+	err := os.Remove(filepath.Join(s.dir, sourcePacksFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }

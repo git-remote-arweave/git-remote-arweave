@@ -77,6 +77,14 @@ func LoadRemoteState(ctx context.Context, ar *arweave.Client, owner, repoName st
 	return &RemoteState{manifestTxID: info.TxID, m: m}, nil
 }
 
+// Packs returns the pack entries from the remote manifest, or nil if no manifest.
+func (rs *RemoteState) Packs() []manifest.PackEntry {
+	if rs.m == nil {
+		return nil
+	}
+	return rs.m.Packs
+}
+
 // ManifestFetchError indicates that a manifest was found via GraphQL
 // but its body could not be downloaded. This can happen when data items
 // are bundled by an untrusted bundler (e.g., Turbo devnet).

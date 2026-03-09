@@ -103,3 +103,17 @@ func TestGenerateNoTips(t *testing.T) {
 		t.Error("Generate with no tips should return error")
 	}
 }
+
+func TestGenerateEmptyDelta(t *testing.T) {
+	src, hashes := makeRepo(t, 3)
+	tip := hashes[2]
+
+	// All tips already covered by bases — should return nil (no new objects).
+	data, err := Generate(src, []plumbing.Hash{tip}, []plumbing.Hash{tip})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if data != nil {
+		t.Errorf("expected nil for empty delta, got %d bytes", len(data))
+	}
+}

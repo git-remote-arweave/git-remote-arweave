@@ -165,6 +165,13 @@ func (h *handler) cmdList() error {
 		}
 	}
 	h.remoteState = rs
+
+	// Save pack entries for fork support. When this repo is later pushed
+	// to a different wallet, the genesis manifest can reference these packs.
+	if packs := rs.Packs(); len(packs) > 0 {
+		_ = h.state.SaveSourcePacks(packs)
+	}
+
 	refs := ops.ListRefs(rs, pending)
 
 	for ref, sha := range refs {

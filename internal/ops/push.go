@@ -86,11 +86,34 @@ func Push(
 	// 4. Compute effective state (refs and packs) from remote + pending.
 	effectiveRefs, effectivePacks := effectiveState(rs, res)
 
+	// 4a. Fork detection: if pushing to a new repo and we have source
+	// packs from a previous fetch, include them so the fork reuses
+	// existing Arweave data instead of re-uploading.
+	var sourcePacks []manifest.PackEntry
+	if rs.m == nil && len(effectivePacks) == 0 {
+		sp, err := state.LoadSourcePacks()
+		if err != nil {
+			return nil, fmt.Errorf("ops: load source packs: %w", err)
+		}
+		if len(sp) > 0 {
+			sourcePacks = sp
+			effectivePacks = sp
+		}
+	}
+
 	// 5. Apply ref updates.
 	newRefs := mergeRefs(effectiveRefs, input.RefUpdates)
 
 	// 6. Determine tips and bases for pack generation.
 	tips, bases := computePackRange(input.RefUpdates, effectiveRefs)
+	// For forks, add source pack tips as bases so we only generate the delta.
+	if len(sourcePacks) > 0 {
+		for _, pe := range sourcePacks {
+			if pe.Tip != "" {
+				bases = append(bases, plumbing.NewHash(pe.Tip))
+			}
+		}
+	}
 	if len(tips) == 0 {
 		// Ref-only update (e.g., delete). No new objects to upload.
 		return uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks)
@@ -100,6 +123,17 @@ func Push(
 	packData, err := pack.Generate(repo, bases, tips)
 	if err != nil {
 		return nil, fmt.Errorf("ops: generate pack: %w", err)
+	}
+	if packData == nil {
+		// No new objects (e.g., fork with no changes). Upload manifest only.
+		result, err := uploadManifestOnly(ctx, uploader, state, repoName, rs, res, newRefs, effectivePacks)
+		if err != nil {
+			return nil, err
+		}
+		if len(sourcePacks) > 0 {
+			_ = state.ClearSourcePacks()
+		}
+		return result, nil
 	}
 
 	// 7a. Encryption (private repos).
@@ -211,6 +245,11 @@ func Push(
 	}
 	if err := state.SavePending(pending, packData); err != nil {
 		return nil, fmt.Errorf("ops: save pending: %w", err)
+	}
+
+	// Clean up source packs after successful fork push.
+	if len(sourcePacks) > 0 {
+		_ = state.ClearSourcePacks()
 	}
 
 	return &PushResult{PackTxID: packTxID, ManifestTxID: manifestTxID, BytesUploaded: len(packData) + len(manifestData)}, nil

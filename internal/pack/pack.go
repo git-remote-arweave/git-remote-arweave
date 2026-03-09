@@ -15,6 +15,7 @@ const deltaWindowSize = 10
 // Generate creates a packfile containing all objects reachable from tips
 // but not reachable from bases (objects the remote already has).
 // Pass nil or empty bases to include all objects (e.g. on first push or clone).
+// Returns nil, nil if all tips are already reachable from bases (no new objects).
 func Generate(repo *git.Repository, bases, tips []plumbing.Hash) ([]byte, error) {
 	if len(tips) == 0 {
 		return nil, fmt.Errorf("pack: no tips specified")
@@ -23,6 +24,9 @@ func Generate(repo *git.Repository, bases, tips []plumbing.Hash) ([]byte, error)
 	objects, err := revlist.Objects(repo.Storer, tips, bases)
 	if err != nil {
 		return nil, fmt.Errorf("pack: revlist error: %w", err)
+	}
+	if len(objects) == 0 {
+		return nil, nil
 	}
 
 	var buf bytes.Buffer

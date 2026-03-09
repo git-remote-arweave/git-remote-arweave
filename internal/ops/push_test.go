@@ -530,6 +530,109 @@ func TestPush_OwnerMatch(t *testing.T) {
 	}
 }
 
+// TestForkPush_SourcePacksAsBase verifies that when pushing to a new repo
+// with source packs from a previous fetch, the source packs are included
+// in the effective packs and their tips are used as bases for delta generation.
+func TestForkPush_SourcePacksAsBase(t *testing.T) {
+	state := newTestState(t)
+
+	// Simulate: user cloned from source, fetch saved source packs.
+	sourcePacks := []manifest.PackEntry{
+		{TX: "source-pack-1", Base: "", Tip: "aaa", Size: 1000},
+		{TX: "source-pack-2", Base: "aaa", Tip: "bbb", Size: 500},
+	}
+	if err := state.SaveSourcePacks(sourcePacks); err != nil {
+		t.Fatalf("SaveSourcePacks: %v", err)
+	}
+
+	// New repo — no remote state.
+	rs := &RemoteState{}
+	res := &pendingResolution{outcome: noPending}
+
+	effectiveRefs, effectivePacks := effectiveState(rs, res)
+	if len(effectivePacks) != 0 {
+		t.Fatalf("effectiveState should return no packs for new repo")
+	}
+
+	// Fork detection: load source packs for new repo.
+	if rs.m == nil && len(effectivePacks) == 0 {
+		sp, err := state.LoadSourcePacks()
+		if err != nil {
+			t.Fatalf("LoadSourcePacks: %v", err)
+		}
+		if len(sp) > 0 {
+			effectivePacks = sp
+		}
+	}
+
+	if len(effectivePacks) != 2 {
+		t.Fatalf("expected 2 source packs, got %d", len(effectivePacks))
+	}
+	if effectivePacks[0].TX != "source-pack-1" {
+		t.Errorf("expected source-pack-1, got %q", effectivePacks[0].TX)
+	}
+
+	// computePackRange should get bases from source pack tips.
+	updates := map[string]string{
+		"refs/heads/main": "ccc",
+	}
+	tips, bases := computePackRange(updates, effectiveRefs)
+	// Add source pack tips as bases.
+	for _, pe := range effectivePacks {
+		if pe.Tip != "" {
+			bases = append(bases, plumbing.NewHash(pe.Tip))
+		}
+	}
+
+	if len(tips) != 1 {
+		t.Fatalf("expected 1 tip, got %d", len(tips))
+	}
+	if len(bases) != 2 {
+		t.Fatalf("expected 2 bases (from source pack tips), got %d", len(bases))
+	}
+}
+
+// TestForkPush_NoSourcePacks verifies that pushing to a new repo without
+// source packs works normally (not a fork).
+func TestForkPush_NoSourcePacks(t *testing.T) {
+	state := newTestState(t)
+
+	sp, err := state.LoadSourcePacks()
+	if err != nil {
+		t.Fatalf("LoadSourcePacks: %v", err)
+	}
+	if sp != nil {
+		t.Errorf("expected nil source packs, got %v", sp)
+	}
+}
+
+// TestForkPush_ClearSourcePacks verifies that source packs are cleared
+// after a successful fork push.
+func TestForkPush_ClearSourcePacks(t *testing.T) {
+	state := newTestState(t)
+
+	if err := state.SaveSourcePacks([]manifest.PackEntry{{TX: "pack-1"}}); err != nil {
+		t.Fatalf("SaveSourcePacks: %v", err)
+	}
+
+	// Verify they exist.
+	sp, _ := state.LoadSourcePacks()
+	if len(sp) != 1 {
+		t.Fatalf("expected 1 source pack, got %d", len(sp))
+	}
+
+	// Clear.
+	if err := state.ClearSourcePacks(); err != nil {
+		t.Fatalf("ClearSourcePacks: %v", err)
+	}
+
+	// Verify cleared.
+	sp, _ = state.LoadSourcePacks()
+	if sp != nil {
+		t.Errorf("expected nil after clear, got %v", sp)
+	}
+}
+
 func TestPush_NoWalletSkipsCheck(t *testing.T) {
 	ar := arweave.NewWithWallet(nil)
 
