@@ -158,6 +158,34 @@ func TestEncryptionStateNotFound(t *testing.T) {
 	}
 }
 
+func TestAddReaderOwnerIdempotent(t *testing.T) {
+	s := testState(t)
+
+	// First add: owner is new reader.
+	added, err := s.AddReader("owner-addr", "owner-pubkey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !added {
+		t.Fatal("expected owner to be added")
+	}
+
+	// Second add: idempotent (already exists with pubkey).
+	added, err = s.AddReader("owner-addr", "owner-pubkey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added {
+		t.Fatal("owner already present, should be no-op")
+	}
+
+	// Readers list should have exactly one entry.
+	readers, _ := s.LoadReaders()
+	if len(readers) != 1 || readers[0].Address != "owner-addr" || readers[0].PubKey != "owner-pubkey" {
+		t.Fatalf("unexpected readers: %v", readers)
+	}
+}
+
 // testState creates a State in a temp directory.
 func testState(t *testing.T) *State {
 	t.Helper()

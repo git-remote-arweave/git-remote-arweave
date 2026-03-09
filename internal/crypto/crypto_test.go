@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"testing"
 )
 
@@ -116,6 +118,31 @@ func TestUnwrapWrongKey(t *testing.T) {
 	_, err := UnwrapKey(wrapped, priv2)
 	if err == nil {
 		t.Fatal("UnwrapKey with wrong private key should fail")
+	}
+}
+
+func TestOwnerToAddress(t *testing.T) {
+	// Known modulus bytes → expected address.
+	modulus := []byte("test-modulus-bytes")
+	owner := base64.RawURLEncoding.EncodeToString(modulus)
+
+	addr, err := OwnerToAddress(owner)
+	if err != nil {
+		t.Fatalf("OwnerToAddress: %v", err)
+	}
+
+	// Verify manually: address = base64url(SHA-256(modulus)).
+	hash := sha256.Sum256(modulus)
+	want := base64.RawURLEncoding.EncodeToString(hash[:])
+	if addr != want {
+		t.Errorf("OwnerToAddress = %q, want %q", addr, want)
+	}
+}
+
+func TestOwnerToAddress_Invalid(t *testing.T) {
+	_, err := OwnerToAddress("not valid base64 !!!")
+	if err == nil {
+		t.Fatal("expected error for invalid base64")
 	}
 }
 

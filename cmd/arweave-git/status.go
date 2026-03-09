@@ -309,10 +309,21 @@ func checkAvailability(ctx context.Context, ar *arweave.Client, entries []txEntr
 }
 
 // findArweaveRemote finds the first arweave:// remote URL in git config.
+// Fatals if not found.
 func findArweaveRemote() string {
+	url := findArweaveRemoteOrEmpty()
+	if url == "" {
+		fatalf("no arweave:// remote found")
+	}
+	return url
+}
+
+// findArweaveRemoteOrEmpty returns the first arweave:// remote URL,
+// or "" if none found (e.g., not a git repo or no arweave remotes).
+func findArweaveRemoteOrEmpty() string {
 	out, err := exec.Command("git", "remote", "-v").Output()
 	if err != nil {
-		fatalf("not a git repository or no remotes configured")
+		return ""
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
@@ -320,6 +331,5 @@ func findArweaveRemote() string {
 			return fields[1]
 		}
 	}
-	fatalf("no arweave:// remote found")
 	return ""
 }

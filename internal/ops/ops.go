@@ -90,6 +90,11 @@ func (rs *RemoteState) Packs() []manifest.PackEntry {
 	return rs.m.Packs
 }
 
+// HasKeyMap reports whether the remote manifest references a keymap (private repo).
+func (rs *RemoteState) HasKeyMap() bool {
+	return rs.m != nil && rs.m.KeyMap != ""
+}
+
 // ManifestFetchError indicates that a manifest was found via GraphQL
 // but its body could not be downloaded. This can happen when data items
 // are bundled by an untrusted bundler (e.g., Turbo devnet).

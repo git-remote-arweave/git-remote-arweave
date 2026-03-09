@@ -81,6 +81,19 @@ func cmdReaders(args []string) {
 		if len(args) != 2 {
 			fatalf("usage: arweave-git readers remove <wallet-address>")
 		}
+		// Prevent removing yourself from readers — you won't be able
+		// to decrypt your own repo.
+		cfg, err := config.Load()
+		if err != nil {
+			fatalf("load config: %v", err)
+		}
+		ar, err := arweave.New(cfg)
+		if err != nil {
+			fatalf("create client: %v", err)
+		}
+		if addr := ar.Address(); addr != "" && args[1] == addr {
+			fatalf("cannot remove your own wallet %s from readers", addr)
+		}
 		removed, err := state.RemoveReader(args[1])
 		if err != nil {
 			fatalf("remove reader: %v", err)

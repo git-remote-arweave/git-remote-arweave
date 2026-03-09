@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 
@@ -58,6 +59,17 @@ func Open(box []byte, key *[KeySize]byte) ([]byte, error) {
 		return nil, fmt.Errorf("crypto: decryption failed (wrong key or corrupted data)")
 	}
 	return plaintext, nil
+}
+
+// OwnerToAddress derives an Arweave wallet address from an owner key
+// (base64url-encoded RSA modulus). The address is base64url(SHA-256(raw_modulus)).
+func OwnerToAddress(owner string) (string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(owner)
+	if err != nil {
+		return "", fmt.Errorf("crypto: decode owner key: %w", err)
+	}
+	hash := sha256.Sum256(raw)
+	return base64.RawURLEncoding.EncodeToString(hash[:]), nil
 }
 
 // WrapKey encrypts a symmetric key for a reader using RSA-OAEP with SHA-256.

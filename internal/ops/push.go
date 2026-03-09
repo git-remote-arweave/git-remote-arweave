@@ -146,6 +146,10 @@ func Push(
 	epoch := 0
 	if cfg.IsPrivate() {
 		visibility = manifest.VisibilityPrivate
+		// Ensure owner is always in readers for consistency.
+		if _, err := state.AddReader(ar.Address(), ar.Owner()); err != nil {
+			return nil, fmt.Errorf("ops: ensure owner in readers: %w", err)
+		}
 		ec, err = initEncryption(state)
 		if err != nil {
 			return nil, fmt.Errorf("ops: init encryption: %w", err)

@@ -55,6 +55,11 @@ func Fetch(
 		if err != nil {
 			return nil, fmt.Errorf("ops: parse keymap: %w", err)
 		}
+		// Sync readers from keymap: ensure all pubkeys in the keymap are
+		// in the local readers list. This preserves reader access through
+		// forks — when forking, the new owner's push will encrypt for
+		// everyone already in readers.
+		syncReadersFromKeyMap(state, km)
 	}
 
 	// Determine which packs are new.

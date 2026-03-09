@@ -262,6 +262,25 @@ func rsaPubKeyFromModulus(nB64 string) (*rsa.PublicKey, error) {
 	return &rsa.PublicKey{N: n, E: 65537}, nil
 }
 
+// syncReadersFromKeyMap adds reader pubkeys from the keymap's latest epoch
+// to the local readers list. Only the latest epoch is used because earlier
+// epochs may contain readers that were intentionally removed (triggering
+// key rotation). This ensures that when forking a private repo, the current
+// set of readers (including the original owner) is preserved in the fork.
+func syncReadersFromKeyMap(state *localstate.State, km *crypto.KeyMap) {
+	epoch := km.LatestEpoch()
+	if epoch < 0 {
+		return
+	}
+	for _, pubkey := range km.Readers(epoch) {
+		addr, err := crypto.OwnerToAddress(pubkey)
+		if err != nil {
+			continue // skip malformed entries
+		}
+		_, _ = state.AddReader(addr, pubkey)
+	}
+}
+
 // diffReaders compares current readers against lastReaders.
 // Returns (added, removed) indicating if any reader was added or removed.
 func diffReaders(lastReaders, currentReaders []string) (added, removed bool) {
