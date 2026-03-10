@@ -116,7 +116,7 @@ git remote set-url origin arweave://<your-wallet-address>/<repo-name>
 git push origin main
 ```
 
-The push detects that you cloned from a different owner and creates a fork: the genesis manifest references the original packs (no re-upload) and includes a `Forked-From` tag pointing to the source manifest. For private repositories, the fork owner must be an authorized reader of the original -- epoch keys are inherited and re-wrapped for the fork's own reader set.
+The push detects that you cloned from a different owner and creates a fork: the genesis manifest references the original packs (no re-upload) and includes a `Forked-From` tag pointing to the source manifest. For private repositories, the fork owner must be an authorized reader of the original -- epoch keys are inherited and re-wrapped for the fork's own reader set if it differs from the original, or the source keymap is reused as-is.
 
 ### Check transaction status
 
@@ -148,7 +148,7 @@ Configuration is resolved in priority order: environment variable > git config >
 | Visibility | `ARWEAVE_VISIBILITY` | `arweave.visibility` | `public` |
 | Drop timeout | `ARWEAVE_DROP_TIMEOUT` | `arweave.dropTimeout` | `30m` |
 
-The wallet is an Arweave JWK keyfile (JSON). It is only required for push operations; fetch and clone work without a wallet.
+The wallet is an Arweave JWK keyfile (JSON). It is required for push operations and for fetching private repositories (decryption). Public repos can be cloned and fetched without a wallet.
 
 ```sh
 # Set wallet globally
@@ -236,7 +236,7 @@ git push origin main
 
 On the first push with `visibility = private`, a symmetric encryption key is generated and stored locally in `.git/arweave/encryption.json`. All pack data and the manifest body are encrypted with NaCl secretbox (XSalsa20-Poly1305). The symmetric key is wrapped with the owner's RSA public key (from the Arweave wallet) and uploaded as a separate **keymap** transaction.
 
-Only the wallet owner can decrypt the data. The keymap transaction is referenced from the manifest via a public `Key-Map` tag, so the fetch logic can locate it without decrypting anything first.
+Only authorized readers (including the owner) can decrypt the data. The keymap transaction is referenced from the manifest via a public `Key-Map` tag, so the fetch logic can locate it without decrypting anything first.
 
 ### Managing readers
 
