@@ -14,6 +14,31 @@ The canonical repository lives on Arweave itself. GitHub is a read-only mirror.
 arweave://JBw0K8Fw7aIIDmvJepH3Aa7hapVhxUwVkzbzL24_dBw/git-remote-arweave
 ```
 
+## Table of contents
+
+- [How it works](#how-it-works)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Create a new repository](#create-a-new-repository-on-arweave)
+  - [Clone](#clone-an-existing-repository)
+  - [Push](#push-changes)
+  - [Fork](#fork-a-repository)
+  - [Check status](#check-transaction-status)
+- [Configuration](#configuration)
+  - [Gateways](#gateways)
+- [Payment](#payment)
+  - [Top up Turbo credits](#top-up-turbo-credits)
+  - [How much does a push cost?](#how-much-does-a-push-cost)
+- [Private repositories](#private-repositories)
+  - [Creating a private repository](#creating-a-private-repository)
+  - [Managing readers](#managing-readers)
+  - [Converting between public and private](#converting-between-public-and-private)
+- [Limitations](#limitations)
+- [Design](#design)
+- [Project structure](#project-structure)
+- [Local development](#local-development)
+- [Support](#support)
+
 ## How it works
 
 Every `git push` uploads two Arweave transactions:
@@ -21,15 +46,138 @@ Every `git push` uploads two Arweave transactions:
 1. **Pack transaction** -- a git packfile containing the new objects
 2. **Ref manifest transaction** -- a JSON document mapping refs to commit SHAs and listing all pack transaction IDs
 
+Private repos additionally upload a **keymap transaction** (encrypted symmetric keys wrapped for each authorized reader) on the first push and whenever the reader list changes. Otherwise the manifest references the existing keymap.
+
 To find the current state of a repository, the client queries the Arweave GraphQL gateway for the latest ref manifest tagged with the owner's wallet and repository name.
 
 On `git fetch`, the client compares the manifest's pack list against a local set of already-applied packs, downloads only the new ones, and applies them.
 
-## Payment model
+## Installation
 
-By default, uploads go through [ArDrive Turbo](https://ardrive.io) -- a bundling service that accepts payment in SOL, ETH, MATIC, USDC, AR, ARIO, or fiat (credit card via Stripe). Turbo works on a **prepaid credit** model: you top up your balance, and each push deducts from it.
+```sh
+curl -fsSL https://raw.githubusercontent.com/git-remote-arweave/git-remote-arweave/refs/heads/main/install.sh | bash
+```
 
-The alternative is **native L1** upload, which sends transactions directly to the Arweave network and requires AR tokens in the wallet. L1 transactions have a minimum size granularity of 256 KiB, so small pushes (typical for git) cost orders of magnitude more than via Turbo. Native L1 is not recommended for regular use.
+Downloads a temporary Go toolchain, builds from source, installs to `~/.local/bin/`. No root required. Works on Linux and macOS (amd64/arm64).
+
+Make sure `~/.local/bin` is in your `PATH`. Git discovers remote helpers by looking for `git-remote-<scheme>` executables.
+
+### Build from source manually
+
+Requires Go 1.22+:
+
+```sh
+git clone https://github.com/git-remote-arweave/git-remote-arweave
+cd git-remote-arweave
+make install
+```
+
+Installs to `$(go env GOPATH)/bin/`.
+
+## Usage
+
+### Create a new repository on Arweave
+
+```sh
+cd my-project
+git init && git add . && git commit -m "Initial commit"
+git remote add origin arweave://<your-wallet-address>/<repo-name>
+git push origin main
+```
+
+The first push automatically creates the genesis manifest. No separate init step is needed.
+
+### Clone an existing repository
+
+```sh
+git clone arweave://<wallet-address>/<repo-name>
+```
+
+### Fetch updates
+
+```sh
+git fetch origin
+```
+
+### Push changes
+
+```sh
+git push origin main
+```
+
+After pushing, you'll see a message with the transaction IDs. The data becomes globally visible once the transactions confirm (typically a few minutes).
+
+### Fork a repository
+
+```sh
+git clone arweave://<original-owner>/<repo-name>
+cd repo-name
+git remote set-url origin arweave://<your-wallet-address>/<repo-name>
+git push origin main
+```
+
+The push detects that you cloned from a different owner and creates a fork: the genesis manifest references the original packs (no re-upload) and includes a `Forked-From` tag pointing to the source manifest. For private repositories, the fork owner must be an authorized reader of the original -- epoch keys are inherited and re-wrapped for the fork's own reader set.
+
+### Check transaction status
+
+```sh
+arweave-git status
+```
+
+Shows the settlement status of Arweave transactions reachable from the current HEAD manifest via parent-tx chain walk. For each manifest, pack, and keymap transaction, checks:
+
+- **GW** -- data available via the main gateway (arweave.net) HEAD request
+- **CDN** -- data available via Turbo CDN (shown only when using Turbo payment)
+- **GQL** -- transaction indexed in GraphQL (fully settled on L1)
+
+By default shows the latest 10 manifests. Use `--all` to show the full chain.
+
+Bundled data items (Turbo uploads) may show GW:✗ even when GQL:✓ -- this is normal. The data is permanently stored in ANS-104 bundles on L1, but arweave.net does not always cache individual data items for direct access. The Turbo CDN serves them reliably.
+
+## Configuration
+
+Configuration is resolved in priority order: environment variable > git config > default.
+
+| Parameter | Env var | Git config | Default |
+|---|---|---|---|
+| Wallet keyfile path | `ARWEAVE_WALLET` | `arweave.wallet` | -- (required for push) |
+| Gateway URL | `ARWEAVE_GATEWAY` | `arweave.gateway` | `https://arweave.net` |
+| Payment method | `ARWEAVE_PAYMENT` | `arweave.payment` | `turbo` |
+| Turbo upload URL | `ARWEAVE_TURBO_GATEWAY` | `arweave.turboGateway` | `https://upload.ardrive.io` |
+| Fetch gateway URL | `ARWEAVE_FETCH_GATEWAY` | `arweave.fetchGateway` | (see below) |
+| Visibility | `ARWEAVE_VISIBILITY` | `arweave.visibility` | `public` |
+| Drop timeout | `ARWEAVE_DROP_TIMEOUT` | `arweave.dropTimeout` | `30m` |
+
+The wallet is an Arweave JWK keyfile (JSON). It is only required for push operations; fetch and clone work without a wallet.
+
+```sh
+# Set wallet globally
+git config --global arweave.wallet /path/to/wallet.json
+
+# Or per-repo
+git config arweave.wallet /path/to/wallet.json
+
+# Or via environment
+export ARWEAVE_WALLET=/path/to/wallet.json
+```
+
+### Gateways
+
+The client uses three separate gateway endpoints, each serving a different role:
+
+- **Gateway** (`arweave.gateway`) -- the main Arweave gateway. Used for GraphQL queries (finding manifests, looking up repos), transaction status checks, and as a fallback data source. Default: `https://arweave.net`.
+
+- **Fetch gateway** (`arweave.fetchGateway`) -- used to download transaction data (packfiles, manifests, keymaps). When using Turbo, defaults to `https://turbo-gateway.com`, which serves bundled data items within seconds of upload. The main gateway (`arweave.net`) only serves bundled data after L1 settlement, which can take minutes to hours -- so it cannot be used as a reliable fallback for Turbo-uploaded data. When using native L1 payment, defaults to the main gateway (no bundling involved).
+
+- **Turbo gateway** (`arweave.turboGateway`) -- the Turbo upload endpoint. Used only for push when `arweave.payment = turbo`. Accepts ANS-104 data items via HTTP. Default: `https://upload.ardrive.io`.
+
+In most cases, you don't need to configure any of these -- the defaults work out of the box. Override them if you're using a custom gateway, running arlocal, or debugging connectivity issues.
+
+## Payment
+
+By default, uploads go through [ArDrive Turbo](https://ardrive.io) -- a bundling service that accepts payment in SOL, ETH, MATIC, USDC, AR, ARIO, or fiat (credit card via Stripe). Turbo works on a **prepaid credit** model: you top up your balance, and each push deducts from it. Delivery is guaranteed once the upload succeeds.
+
+The alternative is **native L1** upload (`git config arweave.payment native`), which sends transactions directly to the Arweave network and requires AR tokens in the wallet. L1 transactions have a minimum size granularity of 256 KiB, so small pushes (typical for git) cost orders of magnitude more than via Turbo. Native L1 is primarily used for local development with [arlocal](https://github.com/textury/arlocal).
 
 ### Top up Turbo credits
 
@@ -75,87 +223,6 @@ turbo token-price --byte-count 10485760 --token solana
 
 Typical git pushes produce packfiles of 1--100 KB plus a small JSON manifest. Turbo subsidizes uploads under 100 KiB, so most regular pushes are **free**. Larger pushes cost a fraction of a cent -- you can push hundreds of times on $1 of credits.
 
-## Key design decisions
-
-**Single owner.** Each repository has exactly one wallet that can push. The wallet address in the URL *is* the repository identity -- only the holder of the corresponding private key can sign transactions. Multi-writer would require an on-chain access control layer (smart contracts, token gating, or a consensus protocol), adding complexity and attack surface for a problem git already solves: fork the repo, push to your own copy, send a merge request. This is how the Linux kernel has scaled to thousands of contributors without shared write access to a single repository.
-
-**Tamper-proof identity.** Repositories are identified by the `(wallet-address, repo-name)` pair. Every upload is cryptographically signed by the owner's wallet. With native L1 transactions, the wallet address is derived from the signature by the Arweave network itself. With Turbo (ANS-104 data items), the signature is verified by the gateway when indexing the bundle. In both cases, repository ownership cannot be spoofed without the private key.
-
-**Pending push handling.** Arweave transaction confirmation takes minutes. After uploading, the client stores a pending state locally (`.git/arweave/`) including a copy of the packfile. On the next push, the client checks confirmation status: if confirmed, it promotes the state; if dropped (not found after a timeout), it re-uploads from the local copy. When using Turbo, delivery is guaranteed and re-upload never happens. This means `git push` returns in seconds.
-
-**Immutability.** Once pushed, data is permanent. `force-push` creates a new manifest that ignores old data, but the old transactions remain on Arweave forever. Accidentally pushed secrets cannot be removed.
-
-**Encryption.** Private repositories use NaCl secretbox (XSalsa20-Poly1305) for symmetric encryption and RSA-OAEP (SHA-256) for key wrapping, using the Arweave wallet's RSA keys directly. An epoch-based key rotation scheme ensures that removed readers lose access to future data while the system remains simple and stateless — no on-chain access control, no smart contracts.
-
-## Installation
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/git-remote-arweave/git-remote-arweave/refs/heads/main/install.sh | bash
-```
-
-Downloads a temporary Go toolchain, builds from source, installs to `~/.local/bin/`. No root required. Works on Linux and macOS (amd64/arm64).
-
-Make sure `~/.local/bin` is in your `PATH`. Git discovers remote helpers by looking for `git-remote-<scheme>` executables.
-
-### Build from source manually
-
-Requires Go 1.22+:
-
-```sh
-git clone https://github.com/git-remote-arweave/git-remote-arweave
-cd git-remote-arweave
-make install
-```
-
-Installs to `$(go env GOPATH)/bin/`.
-
-## Configuration
-
-Configuration is resolved in priority order: environment variable > git config > default.
-
-| Parameter | Env var | Git config | Default |
-|---|---|---|---|
-| Wallet keyfile path | `ARWEAVE_WALLET` | `arweave.wallet` | -- (required for push) |
-| Gateway URL | `ARWEAVE_GATEWAY` | `arweave.gateway` | `https://arweave.net` |
-| Payment method | `ARWEAVE_PAYMENT` | `arweave.payment` | `turbo` |
-| Turbo upload URL | `ARWEAVE_TURBO_GATEWAY` | `arweave.turboGateway` | `https://upload.ardrive.io` |
-| Fetch gateway URL | `ARWEAVE_FETCH_GATEWAY` | `arweave.fetchGateway` | (see below) |
-| Visibility | `ARWEAVE_VISIBILITY` | `arweave.visibility` | `public` |
-| Drop timeout | `ARWEAVE_DROP_TIMEOUT` | `arweave.dropTimeout` | `30m` |
-
-The wallet is an Arweave JWK keyfile (JSON). It is only required for push operations; fetch and clone work without a wallet.
-
-### Gateways
-
-The client uses three separate gateway endpoints, each serving a different role:
-
-- **Gateway** (`arweave.gateway`) -- the main Arweave gateway. Used for GraphQL queries (finding manifests, looking up repos), transaction status checks, and as a fallback data source. Default: `https://arweave.net`.
-
-- **Fetch gateway** (`arweave.fetchGateway`) -- used to download transaction data (packfiles, manifests, keymaps). When using Turbo, defaults to `https://turbo-gateway.com`, which serves bundled data items within seconds of upload. The main gateway (`arweave.net`) only serves bundled data after L1 settlement, which can take minutes to hours — so it cannot be used as a reliable fallback for Turbo-uploaded data. When using native L1 payment, defaults to the main gateway (no bundling involved).
-
-- **Turbo gateway** (`arweave.turboGateway`) -- the Turbo upload endpoint. Used only for push when `arweave.payment = turbo`. Accepts ANS-104 data items via HTTP. Default: `https://upload.ardrive.io`.
-
-In most cases, you don't need to configure any of these -- the defaults work out of the box. Override them if you're using a custom gateway, running arlocal, or debugging connectivity issues.
-
-**Payment method** controls how data is uploaded to Arweave:
-
-- `turbo` (default) -- uploads via ArDrive Turbo bundler. Pay with SOL, ETH, MATIC, fiat, or any supported token. Delivery is guaranteed once the upload succeeds. Requires Turbo credits (see [Top up Turbo credits](#top-up-turbo-credits)).
-- `native` -- uploads L1 transactions directly to the Arweave network. Pay with AR tokens. Significantly more expensive for small pushes due to L1 minimum size granularity. Primarily used for developing git-remote-arweave itself with [arlocal](https://github.com/textury/arlocal).
-
-```sh
-# Set wallet globally
-git config --global arweave.wallet /path/to/wallet.json
-
-# Or per-repo
-git config arweave.wallet /path/to/wallet.json
-
-# Or via environment
-export ARWEAVE_WALLET=/path/to/wallet.json
-
-# Switch to native L1 uploads (e.g., for arlocal)
-git config arweave.payment native
-```
-
 ## Private repositories
 
 Repositories can be encrypted so that only authorized readers can clone or fetch.
@@ -169,11 +236,11 @@ git push origin main
 
 On the first push with `visibility = private`, a symmetric encryption key is generated and stored locally in `.git/arweave/encryption.json`. All pack data and the manifest body are encrypted with NaCl secretbox (XSalsa20-Poly1305). The symmetric key is wrapped with the owner's RSA public key (from the Arweave wallet) and uploaded as a separate **keymap** transaction.
 
-Only the wallet holder can decrypt the data. The keymap transaction is referenced from the manifest via a public `Key-Map` tag, so the fetch logic can locate it without decrypting anything first.
+Only the wallet owner can decrypt the data. The keymap transaction is referenced from the manifest via a public `Key-Map` tag, so the fetch logic can locate it without decrypting anything first.
 
 ### Managing readers
 
-Readers are wallet addresses authorized to decrypt the repository. The owner's address is always included automatically. Reader management is done locally — changes take effect on the next push.
+Readers are wallet addresses authorized to decrypt the repository. The owner's address is always included automatically. Reader management is done locally -- changes take effect on the next push.
 
 ```sh
 # Add a reader (pubkey will need to be fetched from Arweave)
@@ -198,65 +265,9 @@ When a reader is **removed**, a new encryption epoch is created with a fresh sym
 
 ### Converting between public and private
 
-**Public to private:** Set `arweave.visibility` to `private` and push. Future packs will be encrypted. Historical unencrypted packs remain publicly accessible — converting to private does not retroactively hide data.
+**Public to private:** Set `arweave.visibility` to `private` and push. If there are no new commits, create an empty commit first (`git commit --allow-empty -m "convert to private"`). Future packs will be encrypted. Historical unencrypted packs remain publicly accessible -- converting to private does not retroactively hide data.
 
-**Private to public:** Set `arweave.visibility` to `public` and push. An **open keymap** is uploaded where all epoch keys are stored in plaintext, allowing anyone to decrypt historical encrypted packs. Future packs are uploaded unencrypted.
-
-### Limitations
-
-- **Transaction metadata is not encrypted.** Tags are always public, including: repo name, owner address, transaction type, parent tx link, timestamps, and the `Visibility: private` flag itself. The keymap transaction reveals the list of reader wallet addresses and the number of key epochs. An observer can see that a private repo exists, who owns it, who can read it, how often it is updated, and the approximate size of each push — without being able to read the actual content.
-- Removing a reader does not revoke access to previously encrypted data (Arweave is immutable).
-- Converting public to private does not hide already-uploaded unencrypted data.
-- Reader public keys must be either discoverable on Arweave (requires at least one prior transaction) or shared off-chain and added manually with `arweave-git readers add --pubkey`.
-
-## Usage
-
-### Create a new repository on Arweave
-
-```sh
-cd my-project
-git init && git add . && git commit -m "initial"
-git remote add origin arweave://<your-wallet-address>/my-project
-git push origin main
-```
-
-The first push automatically creates the genesis manifest. No separate init step is needed.
-
-### Clone an existing repository
-
-```sh
-git clone arweave://<wallet-address>/repo-name
-```
-
-### Fetch updates
-
-```sh
-git fetch origin
-```
-
-### Push changes
-
-```sh
-git push origin main
-```
-
-After pushing, you'll see a message with the transaction IDs. The data becomes globally visible once the transactions confirm (typically a few minutes).
-
-### Check transaction status
-
-```sh
-arweave-git status
-```
-
-Shows the settlement status of all Arweave transactions for this repository. For each manifest, pack, and keymap transaction, checks:
-
-- **GW** -- data available via the main gateway (arweave.net) HEAD request
-- **CDN** -- data available via Turbo CDN (shown only when using Turbo payment)
-- **GQL** -- transaction indexed in GraphQL (fully settled on L1)
-
-By default shows the latest 10 manifests. Use `--all` to show the full chain.
-
-Bundled data items (Turbo uploads) may show GW:✗ even when GQL:✓ -- this is normal. The data is permanently stored in ANS-104 bundles on L1, but arweave.net does not always cache individual data items for direct access. The Turbo CDN serves them reliably.
+**Private to public:** Set `arweave.visibility` to `public` and push (empty commit if needed). An **open keymap** is uploaded where all epoch keys are stored in plaintext, allowing anyone to decrypt historical encrypted packs. Future packs are uploaded unencrypted.
 
 ## Limitations
 
@@ -264,6 +275,21 @@ Bundled data items (Turbo uploads) may show GW:✗ even when GQL:✓ -- this is 
 - **Confirmation latency.** Pushed data becomes visible in minutes, not seconds. Not suitable for workflows requiring instant collaboration.
 - **Storage cost.** Every push costs credits or AR tokens. Typical pushes cost fractions of a cent. Roughly $5--10 per GB at current rates.
 - **Gateway dependence.** Fetching requires an accessible Arweave gateway.
+- **Metadata is not encrypted.** Tags on private repos are always public: repo name, owner address, transaction type, parent tx link, timestamps, and the `Visibility: private` flag. The keymap reveals reader addresses and number of epochs. An observer can see that a private repo exists, who owns it, who can read it, and how often it is updated -- without seeing the content.
+- **No retroactive revocation.** Removing a reader does not revoke access to previously encrypted data (Arweave is immutable). Converting public to private does not hide already-uploaded unencrypted data.
+- **Reader key discovery.** Reader public keys must be either discoverable on Arweave (requires at least one prior transaction) or shared off-chain and added with `arweave-git readers add --pubkey`.
+
+## Design
+
+**Single owner.** Each repository has exactly one wallet that can push. The `(wallet-address, repo-name)` pair *is* the repository identity, and only the wallet owner can sign transactions for it. Multi-writer would require an on-chain access control layer (smart contracts, token gating, or a consensus protocol), adding complexity and attack surface for a problem git already solves: fork the repo, push to your own copy, send a merge request. This is how the Linux kernel has scaled to thousands of contributors without shared write access to a single repository.
+
+**Tamper-proof identity.** Repositories are identified by the `(wallet-address, repo-name)` pair. Every upload is cryptographically signed by the owner's wallet. With native L1 transactions, the wallet address is derived from the signature by the Arweave network itself. With Turbo (ANS-104 data items), the signature is verified by the gateway when indexing the bundle. In both cases, it is cryptographically impossible to forge a transaction from someone else's wallet.
+
+**Pending push handling.** Arweave transaction confirmation takes minutes. After uploading, the client stores a pending state locally (`.git/arweave/`) including a copy of the packfile. On the next push, the client checks confirmation status: if confirmed, it promotes the state; if dropped (not found after a timeout), it re-uploads from the local copy. When using Turbo, delivery is guaranteed and re-upload never happens. This means `git push` returns in seconds.
+
+**Immutability.** Once pushed, data is permanent. `force-push` creates a new manifest that ignores old data, but the old transactions remain on Arweave forever. Accidentally pushed secrets cannot be removed.
+
+**Encryption.** Private repositories use NaCl secretbox (XSalsa20-Poly1305) for symmetric encryption and RSA-OAEP (SHA-256) for key wrapping, using the Arweave wallet's RSA keys directly. An epoch-based key rotation scheme ensures that removed readers lose access to future data while the system remains simple and stateless -- no on-chain access control, no smart contracts.
 
 ## Project structure
 
@@ -353,12 +379,6 @@ curl -s http://localhost:1984/mine
 # Clone from another directory
 cd /tmp
 git clone arweave://$ADDR/test-repo
-```
-
-### Run tests
-
-```sh
-make test
 ```
 
 ## Support
