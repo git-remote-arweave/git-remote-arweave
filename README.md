@@ -224,7 +224,7 @@ Shows the settlement status of Arweave transactions reachable from the current H
 
 By default shows the latest 10 manifests. Use `--all` to show the full chain.
 
-GW:✗ does not necessarily mean the data is lost. Turbo uploads are ANS-104 bundled data items -- the L1 gateway (arweave.net) does not always serve them individually even after settlement. Transient gateway errors (502/503/504) are shown as `?` rather than ✗.
+Transient gateway errors (502/503/504) are shown as `?` rather than ✗.
 
 ## Configuration
 
