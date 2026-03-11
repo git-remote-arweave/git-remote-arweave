@@ -126,13 +126,13 @@ arweave-git status
 
 Shows the settlement status of Arweave transactions reachable from the current HEAD manifest via parent-tx chain walk. For each manifest, pack, and keymap transaction, checks:
 
+- **TGW** -- data available via the Turbo fetch gateway (shown only when using Turbo payment)
 - **GW** -- data available via the main gateway (arweave.net) HEAD request
-- **CDN** -- data available via Turbo CDN (shown only when using Turbo payment)
 - **GQL** -- transaction indexed in GraphQL (fully settled on L1)
 
 By default shows the latest 10 manifests. Use `--all` to show the full chain.
 
-Bundled data items (Turbo uploads) may show GW:✗ even when GQL:✓ -- this is normal. The data is permanently stored in ANS-104 bundles on L1, but arweave.net does not always cache individual data items for direct access. The Turbo CDN serves them reliably.
+GW:✗ does not necessarily mean the data is lost. Turbo uploads are ANS-104 bundled data items -- the L1 gateway (arweave.net) does not always serve them individually even after settlement. Transient gateway errors (502/503/504) are shown as `?` rather than ✗.
 
 ## Configuration
 

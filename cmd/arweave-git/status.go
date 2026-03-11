@@ -19,9 +19,9 @@ type txEntry struct {
 	txID    string
 	txType  string // "manifest" or "pack"
 	note    string // "head", "genesis", "pending", etc.
-	gw      bool   // HEAD 200 on L1 gateway (arweave.net)
-	cdn     bool   // HEAD 200 on Turbo CDN
-	graphql bool   // exists in GraphQL index
+	gw      arweave.HeadStatus
+	cdn     arweave.HeadStatus
+	graphql bool // exists in GraphQL index
 }
 
 func cmdStatus(args []string) {
@@ -193,7 +193,7 @@ func cmdStatus(args []string) {
 	fmt.Println()
 
 	if dualGateway {
-		fmt.Printf("  %-9s %-43s  %-3s %-3s %-3s\n", "TYPE", "TX", "GW", "CDN", "GQL")
+		fmt.Printf("  %-9s %-43s  %-3s %-3s %-3s\n", "TYPE", "TX", "TGW", "GW", "GQL")
 		fmt.Printf("  %-9s %-43s  %-3s %-3s %-3s\n", "─────────", strings.Repeat("─", 43), "───", "───", "───")
 	} else {
 		fmt.Printf("  %-9s %-43s  %-3s %-3s\n", "TYPE", "TX", "GW", "GQL")
@@ -208,12 +208,12 @@ func cmdStatus(args []string) {
 		if dualGateway {
 			fmt.Printf("  %-9s %s  %s %s %s%s\n",
 				e.txType, e.txID,
-				mark(e.gw), mark(e.cdn), mark(e.graphql),
+				headMark(e.cdn), headMark(e.gw), mark(e.graphql),
 				suffix)
 		} else {
 			fmt.Printf("  %-9s %s  %s %s%s\n",
 				e.txType, e.txID,
-				mark(e.gw), mark(e.graphql),
+				headMark(e.gw), mark(e.graphql),
 				suffix)
 		}
 	}
@@ -229,6 +229,17 @@ func mark(ok bool) string {
 		return " ✓ "
 	}
 	return " ✗ "
+}
+
+func headMark(s arweave.HeadStatus) string {
+	switch s {
+	case arweave.HeadOK:
+		return " ✓ "
+	case arweave.HeadTransient:
+		return " ? "
+	default:
+		return " ✗ "
+	}
 }
 
 func checkAvailability(ctx context.Context, ar *arweave.Client, entries []txEntry) {
@@ -254,9 +265,9 @@ func checkAvailability(ctx context.Context, ar *arweave.Client, entries []txEntr
 	cdnGateway := ar.FetchGateway()
 
 	type headResult struct {
-		txID string
-		gw   string // "gw" or "cdn"
-		ok   bool
+		txID   string
+		gwType string // "gw" or "cdn"
+		status arweave.HeadStatus
 	}
 
 	var wg sync.WaitGroup
@@ -269,8 +280,8 @@ func checkAvailability(ctx context.Context, ar *arweave.Client, entries []txEntr
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			ok := ar.HeadTx(ctx, gwURL, id)
-			results <- headResult{id, "gw", ok}
+			s := ar.HeadTx(ctx, gwURL, id)
+			results <- headResult{id, "gw", s}
 		}(txID)
 
 		if cdnGateway != gwURL {
@@ -279,8 +290,8 @@ func checkAvailability(ctx context.Context, ar *arweave.Client, entries []txEntr
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				ok := ar.HeadTx(ctx, cdnGateway, id)
-				results <- headResult{id, "cdn", ok}
+				s := ar.HeadTx(ctx, cdnGateway, id)
+				results <- headResult{id, "cdn", s}
 			}(txID)
 		}
 	}
@@ -290,13 +301,13 @@ func checkAvailability(ctx context.Context, ar *arweave.Client, entries []txEntr
 		close(results)
 	}()
 
-	gwResults := make(map[string]bool, len(txIDs))
-	cdnResults := make(map[string]bool, len(txIDs))
+	gwResults := make(map[string]arweave.HeadStatus, len(txIDs))
+	cdnResults := make(map[string]arweave.HeadStatus, len(txIDs))
 	for r := range results {
-		if r.gw == "gw" {
-			gwResults[r.txID] = r.ok
+		if r.gwType == "gw" {
+			gwResults[r.txID] = r.status
 		} else {
-			cdnResults[r.txID] = r.ok
+			cdnResults[r.txID] = r.status
 		}
 	}
 

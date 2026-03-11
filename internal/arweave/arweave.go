@@ -183,17 +183,36 @@ func (c *Client) Gateway() string { return c.gateway }
 func (c *Client) FetchGateway() string { return c.fetchGateway }
 
 // HeadTx checks if transaction data is available at baseURL/{txID} via HEAD.
-func (c *Client) HeadTx(ctx context.Context, baseURL, txID string) bool {
+// HeadStatus represents the result of a HEAD availability check.
+type HeadStatus int
+
+const (
+	// HeadOK means the transaction data is available (HTTP 200).
+	HeadOK HeadStatus = iota
+	// HeadNotFound means the transaction was not found (HTTP 404 or other client error).
+	HeadNotFound
+	// HeadTransient means the check failed due to a transient error (502/503/504, network error).
+	HeadTransient
+)
+
+// HeadTx checks whether transaction data is available at the given gateway.
+func (c *Client) HeadTx(ctx context.Context, baseURL, txID string) HeadStatus {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, baseURL+"/"+txID, nil)
 	if err != nil {
-		return false
+		return HeadTransient
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return false
+		return HeadTransient
 	}
 	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode == http.StatusOK {
+		return HeadOK
+	}
+	if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout {
+		return HeadTransient
+	}
+	return HeadNotFound
 }
 
 // Upload signs and submits a data transaction to Arweave.
