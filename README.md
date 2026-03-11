@@ -273,7 +273,7 @@ When a reader is **removed**, a new encryption epoch is created with a fresh sym
 
 - **No deletion.** Data on Arweave is permanent. Force-push orphans old data but cannot erase it.
 - **Confirmation latency.** Pushed data becomes visible in minutes, not seconds. Not suitable for workflows requiring instant collaboration.
-- **Storage cost.** Every push costs credits or AR tokens. Typical pushes cost fractions of a cent. Roughly $5--10 per GB at current rates.
+- **Storage cost.** Pushes may cost Turbo credits or AR tokens. See [How much does a push cost?](#how-much-does-a-push-cost).
 - **Gateway dependence.** Fetching requires an accessible Arweave gateway.
 - **Metadata is not encrypted.** Tags on private repos are always public: repo name, owner address, transaction type, parent tx link, timestamps, and the `Visibility: private` flag. The keymap reveals reader addresses and number of epochs. An observer can see that a private repo exists, who owns it, who can read it, and how often it is updated -- without seeing the content.
 - **No retroactive revocation.** Removing a reader does not revoke access to previously encrypted data (Arweave is immutable). Converting public to private does not hide already-uploaded unencrypted data.
