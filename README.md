@@ -23,6 +23,7 @@ arweave://JBw0K8Fw7aIIDmvJepH3Aa7hapVhxUwVkzbzL24_dBw/git-remote-arweave
   - [Clone](#clone-an-existing-repository)
   - [Push](#push-changes)
   - [Fork](#fork-a-repository)
+  - [Merge requests](#merge-requests)
   - [Check status](#check-transaction-status)
 - [Configuration](#configuration)
   - [Gateways](#gateways)
@@ -117,6 +118,97 @@ git push origin main
 ```
 
 The push detects that you cloned from a different owner and creates a fork: the genesis manifest references the original packs (no re-upload) and includes a `Forked-From` tag pointing to the source manifest. For private repositories, the fork owner must be an authorized reader of the original -- epoch keys are inherited and re-wrapped for the fork's own reader set if it differs from the original, or the source keymap is reused as-is.
+
+> **Note:** public forks of private repositories are not yet fully supported. Currently, making such a fork public publishes an open keymap that exposes the source repo's encryption keys (since fork and source share the same encrypted packs). A future version will re-upload packs without encryption and without the `Forked-From` tag (creating an independent public repo), with an interactive confirmation prompt.
+
+### Merge requests
+
+Merge requests propose merging changes from a fork into the target repository. They are Arweave transactions -- immutable, permissionless, and encrypted for private repos. Updates (close, reopen, merge) form a chain of transactions linked via `Parent-Tx`. The chain is tamper-proof: only the MR author and the target repo owner can post valid updates, and data that fails validation is silently discarded.
+
+#### Create a merge request
+
+From your fork's working directory:
+
+```sh
+arweave-git mr create -m "Add feature X" --source-ref feature
+```
+
+- `--target` defaults to the upstream repo (resolved from the `Forked-From` tag on the fork's genesis manifest). Use `--target <owner>/<repo>` to override.
+- `--target-ref` defaults to `main`.
+- `--source-ref` defaults to the current branch.
+- Without `-m`, opens `$EDITOR`.
+
+#### List merge requests
+
+```sh
+# Incoming (as target repo owner)
+arweave-git mr list
+
+# Outgoing (as fork author)
+arweave-git mr list --outgoing
+```
+
+#### View details
+
+```sh
+arweave-git mr view <tx-id>
+```
+
+Shows title, status, source/target refs, and the current source manifest (updated when the author pushes new commits).
+
+#### Review changes
+
+```sh
+git fetch arweave://<source-owner>/<source-repo> <source-ref>
+git diff main...FETCH_HEAD
+```
+
+#### Push new commits
+
+Just push to your fork — `git push` detects all outgoing merge requests for the pushed branch and updates their source manifest refs on Arweave accordingly, so the target owner will see the latest code when viewing or merging:
+
+```sh
+git push origin main
+```
+
+#### Update merge request description
+
+```sh
+arweave-git mr update <tx-id> -m "New description replacing the original"
+```
+
+#### Close / reopen
+
+```sh
+arweave-git mr close <tx-id>
+arweave-git mr reopen <tx-id> -m "New description replacing the original"
+```
+
+Either the author or the target repo owner can close. Reopening accepts `-m` to replace the merge request description.
+
+#### Merge
+
+```sh
+# Fetch, merge, push, and mark as merged (opens $EDITOR for commit message)
+arweave-git mr merge <tx-id>
+
+# With a commit message (skips $EDITOR)
+arweave-git mr merge <tx-id> -m "Merge feature X"
+
+# Accept default merge commit message
+arweave-git mr merge <tx-id> --no-edit
+
+# Force merge commit (no fast-forward)
+arweave-git mr merge <tx-id> --no-ff
+
+# Squash merge
+arweave-git mr merge <tx-id> --squash
+
+# Just mark as merged (manual workflow)
+arweave-git mr merge <tx-id> --no-merge
+```
+
+Only the target repo owner can merge. Once merged, the status is terminal -- it cannot be reopened.
 
 ### Check transaction status
 

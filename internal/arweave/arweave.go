@@ -684,6 +684,44 @@ func (c *Client) QueryTxTags(ctx context.Context, txID string) (map[string]strin
 	return tags, nil
 }
 
+// TxInfo contains owner address and tags for a transaction.
+type TxInfo struct {
+	Owner string
+	Tags  map[string]string
+}
+
+// QueryTxInfo fetches the owner address and tags for a single transaction by ID.
+// Returns nil, nil if the transaction is not found in GraphQL.
+func (c *Client) QueryTxInfo(ctx context.Context, txID string) (*TxInfo, error) {
+	query := fmt.Sprintf(`{
+  transactions(ids: [%q]) {
+    edges { node { id owner { address } tags { name value } } }
+  }
+}`, txID)
+
+	body, err := withRetry(ctx, 3, func() ([]byte, error) {
+		return c.goarClient.GraphQL(query)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("arweave: graphql tx info lookup: %w", err)
+	}
+
+	var resp mergeRequestGQLResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("arweave: parse tx info response: %w", err)
+	}
+	if len(resp.Transactions.Edges) == 0 {
+		return nil, nil
+	}
+
+	edge := resp.Transactions.Edges[0]
+	tags := make(map[string]string)
+	for _, t := range edge.Node.Tags {
+		tags[t.Name] = t.Value
+	}
+	return &TxInfo{Owner: edge.Node.Owner.Address, Tags: tags}, nil
+}
+
 func parseFirstTxID(body []byte) (string, error) {
 	var resp gqlResponse
 	if err := json.Unmarshal(body, &resp); err != nil {

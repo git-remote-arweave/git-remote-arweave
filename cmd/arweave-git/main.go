@@ -26,6 +26,8 @@ func main() {
 		cmdReaders(os.Args[2:])
 	case "decrypt":
 		cmdDecrypt(os.Args[2:])
+	case "merge-request", "mr":
+		cmdMergeRequest(os.Args[2:])
 	default:
 		fatalf("unknown command: %s", os.Args[1])
 	}
@@ -197,6 +199,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  readers remove <address>              remove a reader wallet")
 	fmt.Fprintln(os.Stderr, "  readers list                          list reader wallets")
 	fmt.Fprintln(os.Stderr, "  decrypt <tx-id> [--keymap <tx>]       decrypt an encrypted transaction")
+	fmt.Fprintln(os.Stderr, "  merge-request (mr) <subcommand>       manage merge requests")
 	os.Exit(1)
 }
 
