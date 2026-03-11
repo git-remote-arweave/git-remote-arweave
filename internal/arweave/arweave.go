@@ -266,42 +266,19 @@ func (c *Client) TxStatus(ctx context.Context, txID string) (Status, error) {
 	return StatusPending, nil
 }
 
-// QueryLatestManifest finds the most recent ref manifest for (owner, repoName)
-// by walking the Parent-Tx chain. GraphQL's HEIGHT_DESC sort is unreliable for
-// ANS-104 data items (Turbo) because block height does not reflect creation order.
-// Instead, we fetch manifests in pages, build a parent→child graph from tags,
-// and return the chain head (the manifest no other manifest references as parent).
+// QueryLatestManifest finds the most recent ref manifest for (owner, repoName).
+// Fetches the first page of results (up to 50) and returns the node with the
+// highest ISO 8601 Timestamp tag. Single GraphQL request.
 // Returns nil, nil if no manifest exists (new repository).
 func (c *Client) QueryLatestManifest(ctx context.Context, owner, repoName string) (*ManifestInfo, error) {
-	const pageSize = 50
-
-	// Collect all manifest nodes across pages.
-	var all []gqlNode
-	var cursor string
-	for {
-		query := buildManifestPageQuery(owner, repoName, pageSize, cursor)
-		body, err := withRetry(ctx, 3, func() ([]byte, error) {
-			return c.goarClient.GraphQL(query)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("arweave: graphql failed: %w", err)
-		}
-		page, err := parseManifestPage(body)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, page.nodes...)
-		if !page.hasNextPage || len(page.nodes) == 0 {
-			break
-		}
-		cursor = page.nodes[len(page.nodes)-1].cursor
+	page, err := c.fetchManifestPage(ctx, owner, repoName, "")
+	if err != nil {
+		return nil, err
 	}
-
-	if len(all) == 0 {
+	if len(page.nodes) == 0 {
 		return nil, nil
 	}
-
-	return findChainHead(all), nil
+	return findByTimestamp(page.nodes), nil
 }
 
 // RepoExists reports whether a repository identified by (owner, repoName) exists on Arweave.
@@ -318,37 +295,18 @@ func (c *Client) RepoExists(ctx context.Context, owner, repoName string) (bool, 
 }
 
 // QueryManifestChain returns the ordered manifest chain (head → genesis)
-// for the given repository. Uses the same paginated GraphQL approach as
-// QueryLatestManifest, then walks Parent-Tx links from the chain head.
+// for the given repository. Finds the head via Timestamp (single page),
+// then fetches all pages and walks Parent-Tx links from head to genesis.
 func (c *Client) QueryManifestChain(ctx context.Context, owner, repoName string) ([]ManifestInfo, error) {
-	const pageSize = 50
-
-	var all []gqlNode
-	var cursor string
-	for {
-		query := buildManifestPageQuery(owner, repoName, pageSize, cursor)
-		body, err := withRetry(ctx, 3, func() ([]byte, error) {
-			return c.goarClient.GraphQL(query)
-		})
-		if err != nil {
-			return nil, fmt.Errorf("arweave: graphql failed: %w", err)
-		}
-		page, err := parseManifestPage(body)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, page.nodes...)
-		if !page.hasNextPage || len(page.nodes) == 0 {
-			break
-		}
-		cursor = page.nodes[len(page.nodes)-1].cursor
+	all, err := c.fetchAllManifestPages(ctx, owner, repoName)
+	if err != nil {
+		return nil, err
 	}
-
 	if len(all) == 0 {
 		return nil, nil
 	}
 
-	head := findChainHead(all)
+	head := findByTimestamp(all)
 
 	// Build chain from head → genesis using Parent-Tx links.
 	byID := make(map[string]*gqlNode, len(all))
@@ -535,66 +493,53 @@ func parseManifestPage(body []byte) (*manifestPage, error) {
 	return page, nil
 }
 
-// findChainHead finds the manifest that no other manifest references as
-// its Parent-Tx. When multiple heads exist (e.g., after force push creates
-// a new genesis while old chain still exists), we trace each head back to
-// its genesis and pick the head belonging to the genesis with the highest
-// Timestamp tag.
-func findChainHead(nodes []gqlNode) *ManifestInfo {
-	byID := make(map[string]*gqlNode, len(nodes))
+// fetchManifestPage fetches a single page of manifest nodes from GraphQL.
+func (c *Client) fetchManifestPage(ctx context.Context, owner, repoName, cursor string) (*manifestPage, error) {
+	query := buildManifestPageQuery(owner, repoName, 50, cursor)
+	body, err := withRetry(ctx, 3, func() ([]byte, error) {
+		return c.goarClient.GraphQL(query)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("arweave: graphql failed: %w", err)
+	}
+	return parseManifestPage(body)
+}
+
+// fetchAllManifestPages fetches all manifest nodes across paginated GraphQL queries.
+func (c *Client) fetchAllManifestPages(ctx context.Context, owner, repoName string) ([]gqlNode, error) {
+	var all []gqlNode
+	var cursor string
+	for {
+		page, err := c.fetchManifestPage(ctx, owner, repoName, cursor)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.nodes...)
+		if !page.hasNextPage || len(page.nodes) == 0 {
+			break
+		}
+		cursor = page.nodes[len(page.nodes)-1].cursor
+	}
+	return all, nil
+}
+
+// findByTimestamp returns the manifest with the highest Timestamp tag value.
+// ISO 8601 timestamps are lexicographically sortable.
+// Returns the first node if none have a timestamp (all legacy).
+func findByTimestamp(nodes []gqlNode) *ManifestInfo {
+	best := &nodes[0]
 	for i := range nodes {
-		byID[nodes[i].id] = &nodes[i]
-	}
-
-	// Build set of all IDs that are referenced as a parent.
-	isParent := make(map[string]bool, len(nodes))
-	for _, n := range nodes {
-		if n.parentTx != "" {
-			isParent[n.parentTx] = true
+		if nodes[i].timestamp > best.timestamp {
+			best = &nodes[i]
 		}
 	}
-
-	// Find heads: nodes whose ID is not in isParent.
-	var heads []gqlNode
-	for _, n := range nodes {
-		if !isParent[n.id] {
-			heads = append(heads, n)
-		}
+	return &ManifestInfo{
+		TxID:      best.id,
+		ParentTx:  best.parentTx,
+		IsGenesis: best.isGenesis,
+		KeyMapTx:  best.keymapTx,
+		Encrypted: best.encrypted,
 	}
-
-	if len(heads) == 0 {
-		heads = nodes[:1]
-	}
-
-	if len(heads) == 1 {
-		h := heads[0]
-		return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx, Encrypted: h.encrypted}
-	}
-
-	// Multiple heads — trace each to its genesis and pick the one
-	// with the highest Timestamp. ISO 8601 strings compare correctly
-	// via lexicographic order. Old manifests without Timestamp have
-	// timestamp="" which always loses to any ISO value.
-	type candidate struct {
-		head    gqlNode
-		genesis *gqlNode
-	}
-	var best *candidate
-	for _, h := range heads {
-		cur := byID[h.id]
-		for cur != nil && !cur.isGenesis {
-			cur = byID[cur.parentTx]
-		}
-		c := &candidate{head: h, genesis: cur}
-		if best == nil {
-			best = c
-		} else if c.genesis != nil && (best.genesis == nil || c.genesis.timestamp > best.genesis.timestamp) {
-			best = c
-		}
-	}
-
-	h := best.head
-	return &ManifestInfo{TxID: h.id, ParentTx: h.parentTx, IsGenesis: h.isGenesis, KeyMapTx: h.keymapTx, Encrypted: h.encrypted}
 }
 
 // --- Retry logic for transient gateway errors ---

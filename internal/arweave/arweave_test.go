@@ -221,26 +221,26 @@ func TestParseManifestPage_empty(t *testing.T) {
 	}
 }
 
-// TestFindChainHead_SimpleChain tests a linear chain: genesis → A → B.
-// B is the head (not referenced as parent by anyone).
-func TestFindChainHead_SimpleChain(t *testing.T) {
+// TestFindByTimestamp_SimpleChain tests a linear chain: genesis → A → B.
+// B has the highest timestamp.
+func TestFindByTimestamp_SimpleChain(t *testing.T) {
 	nodes := []gqlNode{
-		{id: "B", parentTx: "A"},            // head
-		{id: "A", parentTx: "genesis"},
-		{id: "genesis", isGenesis: true},
+		{id: "B", parentTx: "A", timestamp: "2025-01-03T00:00:00.000Z"},
+		{id: "A", parentTx: "genesis", timestamp: "2025-01-02T00:00:00.000Z"},
+		{id: "genesis", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},
 	}
-	info := findChainHead(nodes)
+	info := findByTimestamp(nodes)
 	if info.TxID != "B" {
 		t.Errorf("expected head B, got %q", info.TxID)
 	}
 }
 
-// TestFindChainHead_SingleGenesis tests a single genesis node.
-func TestFindChainHead_SingleGenesis(t *testing.T) {
+// TestFindByTimestamp_SingleGenesis tests a single genesis node.
+func TestFindByTimestamp_SingleGenesis(t *testing.T) {
 	nodes := []gqlNode{
-		{id: "genesis", isGenesis: true},
+		{id: "genesis", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},
 	}
-	info := findChainHead(nodes)
+	info := findByTimestamp(nodes)
 	if info.TxID != "genesis" {
 		t.Errorf("expected genesis, got %q", info.TxID)
 	}
@@ -249,29 +249,25 @@ func TestFindChainHead_SingleGenesis(t *testing.T) {
 	}
 }
 
-// TestFindChainHead_ForcePush tests the force push scenario:
-// old chain: genesis-old → A → B (B is old head)
-// new chain: genesis-new (force push, higher in HEIGHT_DESC)
-// genesis-new should be selected because it's a genesis head.
-func TestFindChainHead_ForcePush(t *testing.T) {
+// TestFindByTimestamp_ForcePush tests the force push scenario:
+// old chain: genesis-old → A → B, new chain: genesis-new.
+// genesis-new has the highest timestamp (most recent push).
+func TestFindByTimestamp_ForcePush(t *testing.T) {
 	nodes := []gqlNode{
 		{id: "B", parentTx: "A"},
 		{id: "genesis-new", isGenesis: true, timestamp: "2025-01-02T00:00:00.000Z"},
 		{id: "A", parentTx: "genesis-old"},
 		{id: "genesis-old", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},
 	}
-	info := findChainHead(nodes)
-	// Both B and genesis-new are heads.
-	// genesis-new has higher timestamp → its chain wins.
-	// genesis-new is itself the head of its chain.
+	info := findByTimestamp(nodes)
 	if info.TxID != "genesis-new" {
 		t.Errorf("expected genesis-new after force push, got %q", info.TxID)
 	}
 }
 
-// TestFindChainHead_ForcePushWithChildren tests force push followed by
-// normal pushes: genesis-new → C → D. Old chain also exists.
-func TestFindChainHead_ForcePushWithChildren(t *testing.T) {
+// TestFindByTimestamp_ForcePushWithChildren tests force push followed by
+// normal pushes. D has the highest timestamp.
+func TestFindByTimestamp_ForcePushWithChildren(t *testing.T) {
 	nodes := []gqlNode{
 		{id: "D", parentTx: "C", timestamp: "2025-01-04T00:00:00.000Z"},
 		{id: "C", parentTx: "genesis-new", timestamp: "2025-01-03T00:00:00.000Z"},
@@ -280,42 +276,38 @@ func TestFindChainHead_ForcePushWithChildren(t *testing.T) {
 		{id: "A", parentTx: "genesis-old"},
 		{id: "genesis-old", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},
 	}
-	info := findChainHead(nodes)
-	// D and B are both heads. D traces to genesis-new (higher timestamp).
+	info := findByTimestamp(nodes)
 	if info.TxID != "D" {
 		t.Errorf("expected D, got %q", info.TxID)
 	}
 }
 
-// TestFindChainHead_HeightMisordered tests the actual bug scenario:
+// TestFindByTimestamp_HeightMisordered tests the scenario where
 // GraphQL returns old manifest at higher block height than newer ones
 // due to ANS-104 settlement ordering. Timestamp disambiguates.
-func TestFindChainHead_HeightMisordered(t *testing.T) {
+func TestFindByTimestamp_HeightMisordered(t *testing.T) {
 	nodes := []gqlNode{
 		{id: "old-head", parentTx: "old-genesis"},                                          // block 1872021
 		{id: "new-child", parentTx: "new-genesis", timestamp: "2025-01-03T00:00:00.000Z"}, // block 1872010
 		{id: "new-genesis", isGenesis: true, timestamp: "2025-01-02T00:00:00.000Z"},       // block 1872006
 		{id: "old-genesis", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},       // block 1872000
 	}
-	info := findChainHead(nodes)
-	// new-genesis has higher timestamp → it's the newest genesis.
-	// new-child traces to new-genesis → selected.
+	info := findByTimestamp(nodes)
 	if info.TxID != "new-child" {
-		t.Errorf("expected new-child (traces to newest genesis by timestamp), got %q", info.TxID)
+		t.Errorf("expected new-child (highest timestamp), got %q", info.TxID)
 	}
 }
 
-// TestFindChainHead_GenesisOutsideWindow tests the case where the genesis
-// is not in the fetched page (chain too long). Falls back to first head.
-func TestFindChainHead_GenesisOutsideWindow(t *testing.T) {
+// TestFindByTimestamp_NoTimestamps tests fallback when no node has a timestamp.
+// Returns the first node in the slice.
+func TestFindByTimestamp_NoTimestamps(t *testing.T) {
 	nodes := []gqlNode{
 		{id: "D", parentTx: "C"},
-		{id: "C", parentTx: "B"},       // B is outside window
+		{id: "C", parentTx: "B"},
 	}
-	info := findChainHead(nodes)
-	// D is the only head (C is referenced as D's parent).
+	info := findByTimestamp(nodes)
 	if info.TxID != "D" {
-		t.Errorf("expected D, got %q", info.TxID)
+		t.Errorf("expected D (first node), got %q", info.TxID)
 	}
 }
 
