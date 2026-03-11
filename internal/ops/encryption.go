@@ -350,6 +350,71 @@ func importForkEpochKeys(
 	return state.SaveEncryption(es)
 }
 
+// hasEncryptedPacks returns true if any pack entry is marked as encrypted.
+func hasEncryptedPacks(packs []manifest.PackEntry) bool {
+	for _, pe := range packs {
+		if pe.Encrypted {
+			return true
+		}
+	}
+	return false
+}
+
+// reuploadDecryptedPacks fetches and decrypts each encrypted source pack,
+// then re-uploads it without encryption. Unencrypted packs are returned as-is.
+func reuploadDecryptedPacks(
+	ctx context.Context,
+	ar *arweave.Client,
+	uploader arweave.Uploader,
+	state *localstate.State,
+	packs []manifest.PackEntry,
+	repoName string,
+) ([]manifest.PackEntry, error) {
+	// Load source keymap for decryption.
+	sourceKeymapTx, _ := state.LoadSourceKeymap()
+	if sourceKeymapTx == "" {
+		return nil, fmt.Errorf("source keymap not available — cannot decrypt packs")
+	}
+	kmData, err := ar.Fetch(ctx, sourceKeymapTx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch source keymap %q: %w", sourceKeymapTx, err)
+	}
+	km, err := crypto.ParseKeyMap(kmData)
+	if err != nil {
+		return nil, fmt.Errorf("parse source keymap: %w", err)
+	}
+
+	var result []manifest.PackEntry
+	for _, pe := range packs {
+		if !pe.Encrypted {
+			result = append(result, pe)
+			continue
+		}
+
+		// Fetch, decrypt, re-upload.
+		data, err := ar.Fetch(ctx, pe.TX)
+		if err != nil {
+			return nil, fmt.Errorf("fetch encrypted pack %q: %w", pe.TX, err)
+		}
+		data, err = decryptPack(data, pe.Epoch, ar.Owner(), ar.RSAPrivateKey(), km)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt pack %q: %w", pe.TX, err)
+		}
+		newTxID, err := uploader.Upload(ctx, data, manifest.PackTags(repoName, pe.Base, pe.Tip, ""))
+		if err != nil {
+			return nil, fmt.Errorf("re-upload pack: %w", err)
+		}
+		result = append(result, manifest.PackEntry{
+			TX:   newTxID,
+			Base: pe.Base,
+			Tip:  pe.Tip,
+			Size: int64(len(data)),
+			// Epoch: 0, Encrypted: false — unencrypted
+		})
+	}
+	return result, nil
+}
+
 // diffReaders compares current readers against lastReaders.
 // Returns (added, removed) indicating if any reader was added or removed.
 func diffReaders(lastReaders, currentReaders []string) (added, removed bool) {

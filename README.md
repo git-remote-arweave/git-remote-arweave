@@ -119,7 +119,7 @@ git push origin main
 
 The push detects that you cloned from a different owner and creates a fork: the genesis manifest references the original packs (no re-upload) and includes a `Forked-From` tag pointing to the source manifest. For private repositories, the fork owner must be an authorized reader of the original -- epoch keys are inherited and re-wrapped for the fork's own reader set if it differs from the original, or the source keymap is reused as-is.
 
-> **Note:** public forks of private repositories are not yet fully supported. Currently, making such a fork public publishes an open keymap that exposes the source repo's encryption keys (since fork and source share the same encrypted packs). A future version will re-upload packs without encryption and without the `Forked-From` tag (creating an independent public repo), with an interactive confirmation prompt.
+When forking a private repo as public, encrypted source packs are re-uploaded without encryption and the `Forked-From` tag is omitted — the result is an independent public repo that does not reference or expose the source repo's keys. An interactive confirmation prompt asks you to type the repository name before proceeding.
 
 ### Merge requests
 
@@ -359,7 +359,7 @@ When a reader is **removed**, a new encryption epoch is created with a fresh sym
 
 **Public to private:** Set `arweave.visibility` to `private` and push. If there are no new commits, create an empty commit first (`git commit --allow-empty -m "convert to private"`). Future packs will be encrypted. Historical unencrypted packs remain publicly accessible -- converting to private does not retroactively hide data.
 
-**Private to public:** Set `arweave.visibility` to `public` and push (empty commit if needed). An **open keymap** is uploaded where all epoch keys are stored in plaintext, allowing anyone to decrypt historical encrypted packs. Future packs are uploaded unencrypted.
+**Private to public:** Set `arweave.visibility` to `public` and push (empty commit if needed). An interactive confirmation prompt asks you to type the repository name before proceeding. An **open keymap** is uploaded where all epoch keys are stored in plaintext, allowing anyone to decrypt historical encrypted packs. Future packs are uploaded unencrypted.
 
 ## Limitations
 

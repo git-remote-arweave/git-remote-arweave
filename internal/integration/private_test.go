@@ -115,6 +115,44 @@ func TestPublicToPrivate(t *testing.T) {
 	}
 }
 
+func TestPublicForkOfPrivateRepo(t *testing.T) {
+	repo := uniqueRepo(t)
+	forkRepo := repo + "-pub-fork"
+	dir := gitInit(t)
+
+	// Push as private with reader access.
+	env := gitEnv(ownerWallet)
+	run(t, dir, env, "git", "config", "arweave.visibility", "private")
+	run(t, dir, env, binaryPath("arweave-git"),
+		"readers", "add", readerAddr, "--pubkey", readerPubKey)
+	gitPush(t, dir, ownerWallet, ownerAddr, repo)
+
+	// Reader clones.
+	forkDir := gitClone(t, readerWallet, ownerAddr, repo)
+
+	// Reader pushes as public fork (different owner, public visibility).
+	forkEnv := gitEnv(readerWallet)
+	run(t, forkDir, forkEnv, "git", "remote", "set-url", "origin",
+		"arweave://"+readerAddr+"/"+forkRepo)
+	// Explicitly set public visibility (default, but be explicit).
+	run(t, forkDir, forkEnv, "git", "config", "arweave.visibility", "public")
+	addCommit(t, forkDir, "fork.txt", "public fork\n", "public fork commit")
+	run(t, forkDir, forkEnv, "git", "push", "origin", "main")
+	mine(gatewayURL)
+
+	// Clone the public fork without any wallet — should succeed.
+	cloned := gitClone(t, "", readerAddr, forkRepo)
+
+	got := readFile(t, cloned, "README.md")
+	if got != "# test repo\n" {
+		t.Fatalf("README.md mismatch: %q", got)
+	}
+	got = readFile(t, cloned, "fork.txt")
+	if got != "public fork\n" {
+		t.Fatalf("fork.txt mismatch: %q", got)
+	}
+}
+
 func TestPrivateToPublic(t *testing.T) {
 	repo := uniqueRepo(t)
 	dir := gitInit(t)

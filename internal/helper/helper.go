@@ -281,8 +281,10 @@ func (h *handler) cmdPush(firstLine string, scanner *bufio.Scanner) error {
 	}
 
 	result, err := ops.Push(h.ctx, h.ar, h.uploader, h.repo, h.state, h.cfg, h.owner, h.repoName, &ops.PushInput{
-		RefUpdates: refUpdates,
-		Force:      force,
+		RefUpdates:  refUpdates,
+		Force:       force,
+		ConfirmFunc: ttyConfirm,
+		SkipConfirm: os.Getenv("ARWEAVE_CONVERT_TO_PUBLIC") == "yes",
 	})
 	if err != nil {
 		for _, dst := range dstOrder {
@@ -344,6 +346,26 @@ func (h *handler) reportCost(result *ops.PushResult) {
 // 1 credit = 1e12 winc (same as 1 AR = 1e12 winston).
 func wincToCredits(winc int64) float64 {
 	return float64(winc) / 1e12
+}
+
+// ttyConfirm prompts the user for confirmation via /dev/tty (since stdin is
+// used by the git remote helper protocol).
+func ttyConfirm(prompt string) (string, error) {
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return "", fmt.Errorf("cannot open terminal for confirmation: %w", err)
+	}
+	defer tty.Close()
+
+	fmt.Fprintf(os.Stderr, "\n%s: ", prompt)
+	scanner := bufio.NewScanner(tty)
+	if scanner.Scan() {
+		return scanner.Text(), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("no input received")
 }
 
 // parseRefSpec splits "src:dst" into source and destination refs.

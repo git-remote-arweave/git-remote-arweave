@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -24,6 +25,15 @@ type PushInput struct {
 	// Force creates a new genesis manifest with a full packfile,
 	// ignoring any existing remote state.
 	Force bool
+	// ConfirmFunc prompts the user for confirmation. It displays the
+	// prompt string and returns the user's input. Required for
+	// destructive operations (e.g., making data public). If nil and
+	// SkipConfirm is false, operations that need confirmation will
+	// fail with an error.
+	ConfirmFunc func(prompt string) (string, error)
+	// SkipConfirm bypasses the interactive confirmation prompt.
+	// Set via ARWEAVE_CONVERT_TO_PUBLIC=yes.
+	SkipConfirm bool
 }
 
 // Push uploads new objects and updates the remote ref manifest.
@@ -115,15 +125,30 @@ func Push(
 			}
 		}
 	}
-	// 6a. Private fork: import epoch keys from the original keymap so that
-	// encryptAndUpload reuses the same symmetric keys for source packs.
+	// 6a. Fork encryption handling.
 	if len(sourcePacks) > 0 && cfg.IsPrivate() {
+		// Private fork: import epoch keys from the original keymap so that
+		// encryptAndUpload reuses the same symmetric keys for source packs.
 		sourceKeymap, _ := state.LoadSourceKeymap()
 		if sourceKeymap != "" {
 			if err := importForkEpochKeys(ctx, ar, state, sourceKeymap); err != nil {
 				return nil, fmt.Errorf("ops: import fork epoch keys: %w", err)
 			}
 		}
+	} else if len(sourcePacks) > 0 && !cfg.IsPrivate() && hasEncryptedPacks(sourcePacks) {
+		// Public fork of private repo: re-upload source packs without
+		// encryption so the public repo is self-contained and does not
+		// expose the source repo's encryption keys.
+		if err := confirmRepoName(input, repoName,
+			"WARNING: creating a public fork of a private repo will re-upload all packs without encryption"); err != nil {
+			return nil, err
+		}
+		decrypted, err := reuploadDecryptedPacks(ctx, ar, uploader, state, sourcePacks, repoName)
+		if err != nil {
+			return nil, fmt.Errorf("ops: re-upload decrypted packs: %w", err)
+		}
+		effectivePacks = decrypted
+		forkedFrom = "" // independent public repo, no link to source
 	}
 
 	if len(tips) == 0 {
@@ -159,6 +184,10 @@ func Push(
 			return nil, fmt.Errorf("ops: build open keymap: %w", err)
 		}
 		if openKM != nil {
+			if err := confirmRepoName(input, repoName,
+				"WARNING: switching to public will expose all historical encryption keys"); err != nil {
+				return nil, err
+			}
 			openKeymapTx, err = uploadOpenKeyMap(ctx, uploader, openKM, repoName)
 			if err != nil {
 				return nil, fmt.Errorf("ops: upload open keymap: %w", err)
@@ -272,6 +301,24 @@ func forcePush(
 
 	state.ClearSourceState()
 	return result, nil
+}
+
+// confirmRepoName asks the user to type the repo name to confirm a destructive operation.
+func confirmRepoName(input *PushInput, repoName, prompt string) error {
+	if input.SkipConfirm {
+		return nil
+	}
+	if input.ConfirmFunc == nil {
+		return fmt.Errorf("ops: %s — set ARWEAVE_CONVERT_TO_PUBLIC=yes to skip this check", prompt)
+	}
+	answer, err := input.ConfirmFunc(fmt.Sprintf("%s\nType the repository name (%s) to confirm", prompt, repoName))
+	if err != nil {
+		return fmt.Errorf("ops: confirmation failed: %w", err)
+	}
+	if strings.TrimSpace(answer) != repoName {
+		return fmt.Errorf("ops: repository name mismatch, aborting")
+	}
+	return nil
 }
 
 // effectiveState returns the refs and packs to use as a base for the new manifest.

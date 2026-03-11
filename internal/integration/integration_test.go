@@ -284,6 +284,7 @@ func gitEnv(wallet string) []string {
 	env = append(env,
 		"ARWEAVE_GATEWAY="+gatewayURL,
 		"ARWEAVE_PAYMENT=native",
+		"ARWEAVE_CONVERT_TO_PUBLIC=yes",
 		"PATH="+binaryDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GIT_TERMINAL_PROMPT=0",
 	)
