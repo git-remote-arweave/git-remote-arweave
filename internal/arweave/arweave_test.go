@@ -166,7 +166,7 @@ func TestParseManifestPage_timestamp(t *testing.T) {
 				"node": {
 					"id": "tx-ts",
 					"tags": [
-						{"name": "Timestamp", "value": "1709900000"},
+						{"name": "Timestamp", "value": "2024-03-08T12:00:00.000Z"},
 						{"name": "Genesis", "value": "true"}
 					]
 				}
@@ -179,8 +179,8 @@ func TestParseManifestPage_timestamp(t *testing.T) {
 		t.Fatalf("parseManifestPage: %v", err)
 	}
 	n := page.nodes[0]
-	if n.timestamp != 1709900000 {
-		t.Errorf("timestamp = %d, want 1709900000", n.timestamp)
+	if n.timestamp != "2024-03-08T12:00:00.000Z" {
+		t.Errorf("timestamp = %q, want 2024-03-08T12:00:00.000Z", n.timestamp)
 	}
 }
 
@@ -256,9 +256,9 @@ func TestFindChainHead_SingleGenesis(t *testing.T) {
 func TestFindChainHead_ForcePush(t *testing.T) {
 	nodes := []gqlNode{
 		{id: "B", parentTx: "A"},
-		{id: "genesis-new", isGenesis: true, timestamp: 2000},
+		{id: "genesis-new", isGenesis: true, timestamp: "2025-01-02T00:00:00.000Z"},
 		{id: "A", parentTx: "genesis-old"},
-		{id: "genesis-old", isGenesis: true, timestamp: 1000},
+		{id: "genesis-old", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},
 	}
 	info := findChainHead(nodes)
 	// Both B and genesis-new are heads.
@@ -273,12 +273,12 @@ func TestFindChainHead_ForcePush(t *testing.T) {
 // normal pushes: genesis-new → C → D. Old chain also exists.
 func TestFindChainHead_ForcePushWithChildren(t *testing.T) {
 	nodes := []gqlNode{
-		{id: "D", parentTx: "C", timestamp: 3000},
-		{id: "C", parentTx: "genesis-new", timestamp: 2500},
+		{id: "D", parentTx: "C", timestamp: "2025-01-04T00:00:00.000Z"},
+		{id: "C", parentTx: "genesis-new", timestamp: "2025-01-03T00:00:00.000Z"},
 		{id: "B", parentTx: "A"},
-		{id: "genesis-new", isGenesis: true, timestamp: 2000},
+		{id: "genesis-new", isGenesis: true, timestamp: "2025-01-02T00:00:00.000Z"},
 		{id: "A", parentTx: "genesis-old"},
-		{id: "genesis-old", isGenesis: true, timestamp: 1000},
+		{id: "genesis-old", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},
 	}
 	info := findChainHead(nodes)
 	// D and B are both heads. D traces to genesis-new (higher timestamp).
@@ -292,10 +292,10 @@ func TestFindChainHead_ForcePushWithChildren(t *testing.T) {
 // due to ANS-104 settlement ordering. Timestamp disambiguates.
 func TestFindChainHead_HeightMisordered(t *testing.T) {
 	nodes := []gqlNode{
-		{id: "old-head", parentTx: "old-genesis"},                    // block 1872021
-		{id: "new-child", parentTx: "new-genesis", timestamp: 2000},  // block 1872010
-		{id: "new-genesis", isGenesis: true, timestamp: 1900},        // block 1872006
-		{id: "old-genesis", isGenesis: true, timestamp: 1000},        // block 1872000
+		{id: "old-head", parentTx: "old-genesis"},                                          // block 1872021
+		{id: "new-child", parentTx: "new-genesis", timestamp: "2025-01-03T00:00:00.000Z"}, // block 1872010
+		{id: "new-genesis", isGenesis: true, timestamp: "2025-01-02T00:00:00.000Z"},       // block 1872006
+		{id: "old-genesis", isGenesis: true, timestamp: "2025-01-01T00:00:00.000Z"},       // block 1872000
 	}
 	info := findChainHead(nodes)
 	// new-genesis has higher timestamp → it's the newest genesis.

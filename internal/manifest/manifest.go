@@ -3,7 +3,6 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"time"
 )
 
@@ -129,7 +128,7 @@ func RefsTags(opts RefsTagsOpts) []Tag {
 		{TagProtocolVersion, ProtocolVersion},
 		{TagType, TypeRefs},
 		{TagRepoName, opts.RepoName},
-		{TagTimestamp, strconv.FormatInt(time.Now().Unix(), 10)},
+		{TagTimestamp, time.Now().UTC().Format("2006-01-02T15:04:05.000Z")},
 	}
 	if opts.ParentTx == "" {
 		tags = append(tags, Tag{TagGenesis, "true"})

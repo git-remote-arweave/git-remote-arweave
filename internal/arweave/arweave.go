@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -494,7 +493,7 @@ type gqlNode struct {
 	cursor    string
 	parentTx  string
 	isGenesis bool
-	timestamp int64  // unix epoch from Timestamp tag; 0 if absent
+	timestamp string // ISO 8601 from Timestamp tag; empty if absent
 	keymapTx  string // from Key-Map tag; non-empty for private repos
 	encrypted bool   // from Encrypted tag
 }
@@ -524,7 +523,7 @@ func parseManifestPage(body []byte) (*manifestPage, error) {
 			case manifest.TagGenesis:
 				n.isGenesis = tag.Value == "true"
 			case manifest.TagTimestamp:
-				n.timestamp, _ = strconv.ParseInt(tag.Value, 10, 64)
+				n.timestamp = tag.Value
 			case manifest.TagKeyMap:
 				n.keymapTx = tag.Value
 			case manifest.TagEncrypted:
@@ -573,8 +572,9 @@ func findChainHead(nodes []gqlNode) *ManifestInfo {
 	}
 
 	// Multiple heads — trace each to its genesis and pick the one
-	// with the highest Timestamp. Old manifests without Timestamp
-	// have timestamp=0, so any tagged genesis wins automatically.
+	// with the highest Timestamp. ISO 8601 strings compare correctly
+	// via lexicographic order. Old manifests without Timestamp have
+	// timestamp="" which always loses to any ISO value.
 	type candidate struct {
 		head    gqlNode
 		genesis *gqlNode
