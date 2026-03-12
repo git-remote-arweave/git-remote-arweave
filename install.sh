@@ -47,7 +47,7 @@ check_deps
 detect_platform
 
 TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+trap 'chmod -R u+w "$TMPDIR" 2>/dev/null; rm -rf "$TMPDIR"' EXIT
 
 # 1. Download Go toolchain
 GO_TARBALL="go${GO_VERSION}.${GOOS}-${GOARCH}.tar.gz"
